@@ -1,0 +1,37 @@
+version: 1
+defaults:
+  na_equal: yes
+  ignore_columns: []  # Columns to ignore during schema comparison
+  keys: []
+  label: ~
+row_validation:
+  check_count: no
+  expected_count: ~
+  tolerance: 0.0
+by_type:
+  numeric:
+    abs: 1.0e-09
+    rel: 1.0e-09
+  integer:
+    abs: 0
+  character:
+    equal_mode: exact
+    case_insensitive: no
+    trim: no
+  date:
+    equal_mode: exact
+  datetime:
+    equal_mode: exact
+  logical:
+    equal_mode: exact
+by_name:
+  # Column-specific rules override type rules
+  # Examples:
+  # amount:
+  #   abs: 0.001      # Absolute tolerance
+  #   rel: 0.001      # Relative tolerance
+  # category:
+  #   case_insensitive: yes
+  #   trim: yes
+  # name:
+  #   equal_mode: normalized

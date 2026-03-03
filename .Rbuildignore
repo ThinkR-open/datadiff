@@ -1,0 +1,8 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.github$
+^\.claude$
+^CLAUDE\.md$
+^tmpclaude-.*$
+^validation_rules\.yaml$
+^rules.yaml$
