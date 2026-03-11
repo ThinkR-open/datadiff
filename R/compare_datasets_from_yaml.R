@@ -31,7 +31,7 @@
 #' @export
 #' @examples
 #' df <- data.frame(id = 1:3, value = c(1.1, 2.2, 3.3), name = c("A", "B", "C"))
-#' write_rules_template(df, key = "id", "my_rules.yaml")
+#' write_rules_template(df, key = "id", path = tempfile(fileext = ".yaml"))
 write_rules_template <- function(data_reference,
                                  key = NULL, label = NULL, path = "rules.yaml", version = 1L, na_equal_default = TRUE,
                                  ignore_columns_default = character(0),
@@ -97,8 +97,9 @@ write_rules_template <- function(data_reference,
 #' @return A list containing the parsed and validated rules configuration
 #' @importFrom yaml read_yaml
 #' @examples
-#' # Assuming "rules.yaml" exists
-#' rules <- read_rules("rules.yaml")
+#' tmp <- tempfile(fileext = ".yaml")
+#' write_rules_template(data.frame(id = 1L, value = 1.0), key = "id", path = tmp)
+#' rules <- read_rules(tmp)
 #' @export
 read_rules <- function(path) {
   r <- read_yaml(path)
@@ -170,8 +171,9 @@ read_rules <- function(path) {
 #' result <- compare_datasets_from_yaml(ref, cand, key = "id")
 #'
 #' # Compare datasets with custom YAML rules
-#' write_rules_template(ref, key = "id", path = "rules.yaml")
-#' result <- compare_datasets_from_yaml(ref, cand, key = "id", path = "rules.yaml")
+#' tmp <- tempfile(fileext = ".yaml")
+#' write_rules_template(ref, key = "id", path = tmp)
+#' result <- compare_datasets_from_yaml(ref, cand, key = "id", path = tmp)
 #' result$reponse
 compare_datasets_from_yaml <- function(data_reference,
                                        data_candidate,
@@ -377,6 +379,34 @@ compare_datasets_from_yaml <- function(data_reference,
 
   col_rules <- derive_column_rules(schema_ref[, common_cols, drop = FALSE], rules)
 
+  # Detect type mismatches between reference and candidate for common columns.
+  # Mismatched columns are excluded from validation logic (tolerance or equality)
+  # and reported as dedicated failing validation steps.
+  type_ref  <- detect_column_types(schema_ref[, common_cols, drop = FALSE])
+  cand_common <- intersect(common_cols, names(schema_cand))
+  type_cand <- detect_column_types(schema_cand[, cand_common, drop = FALSE])
+  # integer and numeric are compatible numeric types: arithmetic and tolerance
+  # comparisons work correctly across them, so they are not considered a mismatch.
+  numeric_types <- c("integer", "numeric")
+  type_mismatch_cols <- common_cols[vapply(common_cols, function(nm) {
+    if (!(nm %in% names(type_cand))) return(FALSE)
+    t_ref  <- type_ref[[nm]]
+    t_cand <- type_cand[[nm]]
+    if (t_ref == t_cand) return(FALSE)
+    if (t_ref %in% numeric_types && t_cand %in% numeric_types) return(FALSE)
+    TRUE
+  }, logical(1))]
+  if (length(type_mismatch_cols) > 0) {
+    mismatch_details <- vapply(type_mismatch_cols, function(nm) {
+      sprintf("'%s' (reference: %s, candidate: %s)", nm, type_ref[[nm]], type_cand[[nm]])
+    }, character(1))
+    warning(sprintf(
+      "Type mismatch detected in %d column(s): %s. Each will be reported as a validation error.",
+      length(type_mismatch_cols),
+      paste(mismatch_details, collapse = ", ")
+    ), call. = FALSE)
+  }
+
   data_reference_p <- preprocess_dataframe(data_reference, col_rules, schema = schema_ref)
   data_candidate_p <- preprocess_dataframe(data_candidate, col_rules, schema = schema_cand)
 
@@ -417,13 +447,17 @@ compare_datasets_from_yaml <- function(data_reference,
     }
   }
 
-  # Detect tolerance columns from schema (works for both local and lazy tables)
+  # Detect tolerance columns from schema (works for both local and lazy tables).
+  # Type-mismatched columns are excluded: arithmetic on non-numeric candidate
+  # values would crash (e.g. sign() on character). They get their own failing
+  # validation step via setup_pointblank_agent instead.
   tol_cols <- names(col_rules)
   tol_cols <- tol_cols[vapply(X = tol_cols, FUN = function(nm) is.numeric(schema_ref[[nm]]), FUN.VALUE = logical(1))]
   tol_cols <- tol_cols[vapply(X = tol_cols, FUN = function(nm) {
     cr <- col_rules[[nm]]
     !is.null(cr$abs) || !is.null(cr$rel)
   }, FUN.VALUE = logical(1))]
+  tol_cols <- setdiff(tol_cols, type_mismatch_cols)
 
   # Add tolerance columns
   cmp <- add_tolerance_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
@@ -500,8 +534,27 @@ compare_datasets_from_yaml <- function(data_reference,
     cmp_for_agent     <- dplyr::collect(cmp_slim_computed)
   }
 
-  # Configure pointblank agent
-  agent <- setup_pointblank_agent(cmp_for_agent, cols_reference, common_cols, tol_cols, row_validation_info, ref_suffix, warn_at, stop_at, label, na_equal, lang, locale, missing_in_candidate = missing_in_candidate, add_col_exists_steps = !is_lazy)
+  # Configure pointblank agent.
+  # Type-mismatched columns are excluded from common_cols (they must not go
+  # through equality comparison, which could silently pass due to R coercion)
+  # and handled via the dedicated type_mismatch_cols failing steps.
+  agent <- setup_pointblank_agent(
+    cmp_for_agent,
+    cols_reference,
+    setdiff(common_cols, type_mismatch_cols),
+    tol_cols,
+    row_validation_info,
+    ref_suffix,
+    warn_at,
+    stop_at,
+    label,
+    na_equal,
+    lang,
+    locale,
+    missing_in_candidate = missing_in_candidate,
+    type_mismatch_cols = type_mismatch_cols,
+    add_col_exists_steps = !is_lazy
+  )
 
   reponse <- interrogate(
     agent,

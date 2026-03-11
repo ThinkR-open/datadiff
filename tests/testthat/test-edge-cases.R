@@ -646,3 +646,167 @@ test_that("validation detects missing columns even with matching row counts", {
 
   unlink(template_path)
 })
+
+# =============================================================================
+# SECTION 7: Type mismatch between reference (numeric) and candidate (character)
+#
+# Reproduces the bug: sign(cand_vals) crashes when a column is numeric in the
+# reference but stored as character in the candidate. The fix should:
+#   - not crash (no "non-numeric argument to a mathematical function" error)
+#   - emit a warning about the type mismatch
+#   - fall back to equality comparison for the mismatched column
+#   - still validate correctly typed columns alongside mismatched ones
+# =============================================================================
+
+test_that("compare_datasets_from_yaml does not crash when numeric ref column is character in candidate", {
+  # Reproduces the exact scenario from bug.R:
+  # results_sas$year  <dbl>  vs  synth_coefgeo$year  <chr>
+  ref <- data.frame(
+    ides = "620025387",
+    year = 2024,          # <dbl>
+    value = 100.0,
+    stringsAsFactors = FALSE
+  )
+  cand <- data.frame(
+    ides  = "620025387",
+    year  = "2024",       # <chr>
+    value = 100.0,
+    stringsAsFactors = FALSE
+  )
+
+  template_path <- tempfile(fileext = ".yaml")
+  write_rules_template(ref, key = "ides", path = template_path)
+
+  # Must not raise "non-numeric argument to a mathematical function"
+  expect_no_error(
+    suppressWarnings(
+      compare_datasets_from_yaml(ref, cand, key = "ides", path = template_path)
+    )
+  )
+
+  unlink(template_path)
+})
+
+test_that("compare_datasets_from_yaml warns about numeric/character type mismatch", {
+  ref <- data.frame(id = 1L, year = 2024, value = 100.0)
+  cand <- data.frame(id = 1L, year = "2024", value = 100.0)
+
+  template_path <- tempfile(fileext = ".yaml")
+  write_rules_template(ref, key = "id", path = template_path)
+
+  expect_warning(
+    compare_datasets_from_yaml(ref, cand, key = "id", path = template_path),
+    regexp = "year"
+  )
+
+  unlink(template_path)
+})
+
+test_that("type-mismatched column falls back to equality and fails when values differ", {
+  # year is numeric in ref, character in cand.
+  # After fallback to equality: 2024 (dbl) != "2024" (chr) => validation fails.
+  ref  <- data.frame(id = 1L, year = 2024,   value = 100.0)
+  cand <- data.frame(id = 1L, year = "2024",  value = 100.0)
+
+  template_path <- tempfile(fileext = ".yaml")
+  write_rules_template(ref, key = "id", path = template_path)
+
+  result <- suppressWarnings(
+    compare_datasets_from_yaml(ref, cand, key = "id", path = template_path)
+  )
+
+  expect_false(result$all_passed)
+
+  unlink(template_path)
+})
+
+test_that("correctly typed columns still pass alongside a mismatched column", {
+  # value (dbl in both) should be validated fine even though year is mismatched.
+  ref  <- data.frame(id = 1L, year = 2024,  value = 100.0)
+  cand <- data.frame(id = 1L, year = "2024", value = 100.0)
+
+  template_path <- tempfile(fileext = ".yaml")
+  # Tight numeric tolerance so value comparison is meaningful
+  write_rules_template(ref, key = "id", path = template_path,
+                       numeric_abs = 1e-9, numeric_rel = 0)
+
+  result <- suppressWarnings(
+    compare_datasets_from_yaml(ref, cand, key = "id", path = template_path)
+  )
+
+  # The overall result fails (year mismatch), but applied_rules must still
+  # contain tolerance rules for value.
+  expect_true("value" %in% names(result$applied_rules))
+  abs_rule <- result$applied_rules[["value"]][["abs"]]
+  expect_false(is.null(abs_rule))
+
+  unlink(template_path)
+})
+
+test_that("multiple columns with numeric/character mismatch do not crash", {
+  ref <- data.frame(
+    id    = 1L,
+    year  = 2024,
+    month = 3,
+    value = 100.0
+  )
+  cand <- data.frame(
+    id    = 1L,
+    year  = "2024",   # mismatch
+    month = "3",      # mismatch
+    value = 100.0     # correctly typed
+  )
+
+  template_path <- tempfile(fileext = ".yaml")
+  write_rules_template(ref, key = "id", path = template_path)
+
+  expect_no_error(
+    suppressWarnings(
+      compare_datasets_from_yaml(ref, cand, key = "id", path = template_path)
+    )
+  )
+
+  # Warning should mention both mismatched columns
+  expect_warning(
+    compare_datasets_from_yaml(ref, cand, key = "id", path = template_path),
+    regexp = "year|month"
+  )
+
+  unlink(template_path)
+})
+
+test_that("no crash and no spurious warning when all column types match", {
+  ref  <- data.frame(id = 1L, year = 2024,  value = 100.0)
+  cand <- data.frame(id = 1L, year = 2024,  value = 100.0)
+
+  template_path <- tempfile(fileext = ".yaml")
+  write_rules_template(ref, key = "id", path = template_path)
+
+  expect_no_error(
+    expect_no_warning(
+      compare_datasets_from_yaml(ref, cand, key = "id", path = template_path)
+    )
+  )
+
+  unlink(template_path)
+})
+
+test_that("message is shown for positional comparison when row counts differ", {
+  ref  <- data.frame(value = 1:5)
+  cand <- data.frame(value = 1:3)
+
+  # No key -> positional comparison; row counts differ -> message emitted then
+  # R errors on column assignment. Capture the message before the error.
+  msg <- NULL
+  tryCatch(
+    withCallingHandlers(
+      suppressWarnings(compare_datasets_from_yaml(ref, cand)),
+      message = function(m) {
+        msg <<- conditionMessage(m)
+        invokeRestart("muffleMessage")
+      }
+    ),
+    error = function(e) NULL
+  )
+  expect_match(msg, "Row counts differ")
+})

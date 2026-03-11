@@ -84,3 +84,27 @@ test_that("preprocess_dataframe handles empty rules", {
   # Should not apply any transformation
   expect_equal(result$text_col, c("  TEST  ", "DATA"))
 })
+
+test_that("get_col_names falls back to names() when colnames() returns empty", {
+  # A plain named list has names() but colnames() returns NULL (length 0)
+  x <- list(col_a = 1:3, col_b = letters[1:3])
+  expect_equal(get_col_names(x), c("col_a", "col_b"))
+})
+
+test_that("preprocess_dataframe applies stringr trim on Arrow objects", {
+  skip_if_not_installed("arrow")
+  skip_if_not_installed("stringr")
+
+  arrow_tbl <- arrow::as_arrow_table(data.frame(
+    name = c("  Alice  ", "  Bob  "),
+    stringsAsFactors = FALSE
+  ))
+
+  # schema is required: Arrow columns are ChunkedArrays, not character vectors,
+  # so is.character(arrow_tbl[["name"]]) returns FALSE without it.
+  schema <- data.frame(name = character(0))
+  rules <- list(name = list(trim = TRUE))
+  result <- preprocess_dataframe(arrow_tbl, rules, schema = schema) %>% dplyr::collect()
+
+  expect_equal(result$name, c("Alice", "Bob"))
+})

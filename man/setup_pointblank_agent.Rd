@@ -18,6 +18,7 @@ setup_pointblank_agent(
   lang = "fr",
   locale = "fr_FR",
   missing_in_candidate = character(0),
+  type_mismatch_cols = character(0),
   add_col_exists_steps = TRUE
 )
 }
@@ -50,6 +51,11 @@ setup_pointblank_agent(
 "en_GB", "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".}
 
 \item{missing_in_candidate}{Character vector of columns missing in candidate dataset}
+
+\item{type_mismatch_cols}{Character vector of columns whose type differs between
+reference and candidate (e.g. numeric in reference, character in candidate).
+A dedicated failing validation step labelled \verb{type_mismatch: <column>} is
+added for each such column.}
 
 \item{add_col_exists_steps}{Logical indicating whether to add \code{col_exists} validation
 steps for common columns (default: \code{TRUE}). Set to \code{FALSE} for the non-local (lazy

@@ -293,3 +293,39 @@ by_type:
   unlink('test_key_param.yaml')
 })
 
+
+test_that("warning truncates to 3 examples when more than 3 duplicate key values in reference", {
+  # 4 unique duplicate key values -> takes the else branch (n_dup_keys > 3)
+  ref <- data.frame(
+    id    = c(1, 1, 2, 2, 3, 3, 4, 4, 5),
+    value = c(10, 11, 20, 21, 30, 31, 40, 41, 50)
+  )
+  cand <- data.frame(
+    id    = c(1, 2, 3, 4, 5),
+    value = c(10.5, 20.5, 30.5, 40.5, 50.5)
+  )
+
+  w <- tryCatch(
+    compare_datasets_from_yaml(ref, cand, key = "id"),
+    warning = \(w) conditionMessage(w)
+  )
+  expect_match(w, "\\.\\.\\.")
+})
+
+test_that("warning truncates to 3 examples when more than 3 duplicate key values in candidate", {
+  ref <- data.frame(
+    id    = c(1, 2, 3, 4, 5),
+    value = c(10, 20, 30, 40, 50)
+  )
+  # 4 unique duplicate key values in candidate
+  cand <- data.frame(
+    id    = c(1, 1, 2, 2, 3, 3, 4, 4, 5),
+    value = c(10, 11, 20, 21, 30, 31, 40, 41, 50)
+  )
+
+  w <- tryCatch(
+    compare_datasets_from_yaml(ref, cand, key = "id"),
+    warning = \(w) conditionMessage(w)
+  )
+  expect_match(w, "\\.\\.\\.")
+})

@@ -41,17 +41,23 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
       exprs_diff[[absdiff_col]] <- rlang::expr(abs(!!c_sym - !!rc_sym))
       exprs_diff[[thresh_col]]  <- rlang::expr(!!abs_tol + !!rel_tol * abs(!!rc_sym))
 
+      # IEEE 754: floating-point subtraction introduces rounding errors
+      # proportional to the magnitude of the operands, not to the threshold.
+      # e.g. 100.01 - 100.00 = 0.0100000000000051 > 0.01 in double precision.
+      # Adding a few ULPs of the reference magnitude absorbs this error without
+      # meaningfully widening the user-specified tolerance.
+      fp_eps <- 8 * .Machine$double.eps
       if (na_equal) {
         exprs_ok[[ok_col]] <- rlang::expr(dplyr::case_when(
           is.na(!!c_sym) & is.na(!!rc_sym) ~ TRUE,
           is.na(!!c_sym) | is.na(!!rc_sym) ~ FALSE,
-          !!absdiff_sym <= !!thresh_sym     ~ TRUE,
+          !!absdiff_sym <= !!thresh_sym + !!fp_eps * abs(!!rc_sym) ~ TRUE,
           .default = FALSE
         ))
       } else {
         exprs_ok[[ok_col]] <- rlang::expr(dplyr::case_when(
           is.na(!!c_sym) | is.na(!!rc_sym) ~ FALSE,
-          !!absdiff_sym <= !!thresh_sym     ~ TRUE,
+          !!absdiff_sym <= !!thresh_sym + !!fp_eps * abs(!!rc_sym) ~ TRUE,
           .default = FALSE
         ))
       }
@@ -90,8 +96,14 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
 
     ok_col <- paste0(c, "__ok")
 
-    # Base comparison: within tolerance
-    within_tol <- absdiff <= cmp[[paste0(c, "__thresh")]]
+    # Base comparison: within tolerance.
+    # A few ULPs of the reference magnitude are added to absorb IEEE 754
+    # rounding errors in the subtraction (e.g. 100.01 - 100.00 gives
+    # 0.0100000000000051 > 0.01 in double precision). The correction is
+    # proportional to |ref|, zeroed out for Inf/NaN inputs.
+    fp_correction <- 8 * .Machine$double.eps * abs(ref_vals)
+    fp_correction[!is.finite(fp_correction)] <- 0
+    within_tol <- absdiff <= cmp[[paste0(c, "__thresh")]] + fp_correction
 
     if (na_equal) {
       # Si na_equal = TRUE, NA == NA et NaN == NaN sont considérés comme vrais

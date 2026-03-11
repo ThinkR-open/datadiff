@@ -174,9 +174,12 @@ test_that("numeric_abs: diff exactement egal au seuil passe (<=) a toutes les ec
 
 # --- 5. Cas limite : diff legerement au-dessus du seuil => echoue ---
 
-test_that("numeric_abs: diff infinitesimalement superieure au seuil echoue a toutes les echelles", {
+test_that("numeric_abs: diff clearly above threshold fails at all scales", {
   abs_tol  <- 2.5
-  epsilon  <- 1e-9   # representable a toutes les echelles choisies (ref <= 1e6)
+  # epsilon must exceed the fp_correction (8 * .Machine$double.eps * |ref|) at
+  # every scale. For ref = 1e6 that correction is ~1.78e-9, so 1e-6 is safely
+  # above it while remaining negligible relative to abs_tol = 2.5.
+  epsilon  <- 1e-6
   ref_vals <- c(1e-6, 1e-3, 0, 1.0, 1e3, 1e6)
   cmp <- data.frame(
     value            = ref_vals + abs_tol + epsilon,
@@ -563,4 +566,91 @@ test_that("comparaison des seuils: 0.000565 passe ou echoue selon le seuil confi
     expect_true(result$value__ok,
                 label = paste0("diff=0.000565 doit passer avec abs=", s))
   }
+})
+
+# =============================================================================
+# SECTION: Robustness to IEEE 754 floating-point rounding errors
+#
+# When cand = ref + threshold mathematically, floating-point subtraction may
+# return an absdiff SLIGHTLY above the threshold (e.g. 100.01 - 100.00 =
+# 0.0100000000000051 > 0.01), causing an unexpected failure.
+# These tests verify that the comparison is robust to such rounding errors.
+# =============================================================================
+
+test_that("100.01 - 100.00 passes with abs_tol = 0.01 (README row A case)", {
+  # 100.01 - 100.00 = 0.01000000000000051 in IEEE 754 -> FALSE without correction
+  cmp <- data.frame(amount = 100.01, amount__reference = 100.00)
+  rules <- list(amount = list(abs = 0.01, rel = 0))
+  result <- add_tolerance_columns(cmp, "amount", rules, "__reference", TRUE)
+  expect_true(result$amount__ok)
+})
+
+test_that("1.1 - 1.0 passes with abs_tol = 0.1 (IEEE 754 rounding)", {
+  # 1.1 - 1.0 = 0.10000000000000009 in IEEE 754 -> FALSE without correction
+  cmp <- data.frame(value = 1.1, value__reference = 1.0)
+  rules <- list(value = list(abs = 0.1, rel = 0))
+  result <- add_tolerance_columns(cmp, "value", rules, "__reference", TRUE)
+  expect_true(result$value__ok)
+})
+
+test_that("1.01 - 1.00 passes with abs_tol = 0.01 (IEEE 754 rounding)", {
+  # 1.01 - 1.00 = 0.01000000000000001 in IEEE 754 -> FALSE without correction
+  cmp <- data.frame(value = 1.01, value__reference = 1.00)
+  rules <- list(value = list(abs = 0.01, rel = 0))
+  result <- add_tolerance_columns(cmp, "value", rules, "__reference", TRUE)
+  expect_true(result$value__ok)
+})
+
+test_that("2.1 - 2.0 passes with abs_tol = 0.1 (IEEE 754 rounding)", {
+  # 2.1 - 2.0 = 0.10000000000000009 in IEEE 754 -> FALSE without correction
+  cmp <- data.frame(value = 2.1, value__reference = 2.0)
+  rules <- list(value = list(abs = 0.1, rel = 0))
+  result <- add_tolerance_columns(cmp, "value", rules, "__reference", TRUE)
+  expect_true(result$value__ok)
+})
+
+test_that("all README rows pass with abs_tol = 0.01", {
+  # Row A (100.01 - 100.00) currently fails even though diff == threshold;
+  # rows B and C already pass. After the fix all three must pass.
+  cmp <- data.frame(
+    amount            = c(100.01, 200.01, 300.001),
+    amount__reference = c(100.00, 200.00, 300.000)
+  )
+  rules <- list(amount = list(abs = 0.01, rel = 0))
+  result <- add_tolerance_columns(cmp, "amount", rules, "__reference", TRUE)
+  expect_true(all(result$amount__ok),
+    label = paste("failing rows:", which(!result$amount__ok)))
+})
+
+test_that("integration README: compare_datasets_from_yaml, amounts within tolerance", {
+  reference <- data.frame(
+    id     = 1:3,
+    amount = c(100.00, 200.00, 300.00)
+  )
+  candidate <- data.frame(
+    id     = 1:3,
+    amount = c(100.01, 200.01, 300.001)
+  )
+  tmp <- tempfile(fileext = ".yaml")
+  write_rules_template(reference, key = "id", path = tmp,
+                       numeric_abs = 0.01, numeric_rel = 0)
+  result <- compare_datasets_from_yaml(reference, candidate, key = "id", path = tmp)
+  expect_true(result$all_passed)
+  unlink(tmp)
+})
+
+test_that("symmetric behaviour: same mathematical diff gives same verdict regardless of magnitude", {
+  # 100.01 - 100.00 fails but 200.01 - 200.00 passes: inconsistent without fix.
+  # After the fix both must give the same verdict.
+  cmp <- data.frame(
+    v1 = 100.01, v1__reference = 100.00,
+    v2 = 200.01, v2__reference = 200.00
+  )
+  rules <- list(
+    v1 = list(abs = 0.01, rel = 0),
+    v2 = list(abs = 0.01, rel = 0)
+  )
+  result <- add_tolerance_columns(cmp, c("v1", "v2"), rules, "__reference", TRUE)
+  expect_equal(result$v1__ok, result$v2__ok,
+    label = "v1 and v2 have the same mathematical diff, must have the same verdict")
 })

@@ -19,6 +19,10 @@
 #' @param locale Locale code for number and date formatting (default: "fr_FR"). Examples: "en_US",
 #'   "en_GB", "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".
 #' @param missing_in_candidate Character vector of columns missing in candidate dataset
+#' @param type_mismatch_cols Character vector of columns whose type differs between
+#'   reference and candidate (e.g. numeric in reference, character in candidate).
+#'   A dedicated failing validation step labelled `type_mismatch: <column>` is
+#'   added for each such column.
 #' @param add_col_exists_steps Logical indicating whether to add `col_exists` validation
 #'   steps for common columns (default: `TRUE`). Set to `FALSE` for the non-local (lazy
 #'   table) path where `cmp` only contains pre-computed boolean columns, not the original
@@ -38,11 +42,23 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
                                    row_validation_info = NULL, ref_suffix, warn_at, stop_at, label,
                                    na_equal, lang = "fr", locale = "fr_FR",
                                    missing_in_candidate = character(0),
+                                   type_mismatch_cols = character(0),
                                    add_col_exists_steps = TRUE) {
   # Add dummy columns for missing columns BEFORE creating the agent
   # These columns are set to FALSE and we'll check they equal TRUE (will fail)
   for (c in missing_in_candidate) {
     dummy_col <- paste0("__missing_col_", c)
+    if (is_non_local(cmp)) {
+      cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
+    } else {
+      cmp[[dummy_col]] <- FALSE
+    }
+  }
+
+  # Add dummy FALSE columns for type-mismatched columns.
+  # These will generate a dedicated failing validation step per column.
+  for (c in type_mismatch_cols) {
+    dummy_col <- paste0("__type_mismatch_", c)
     if (is_non_local(cmp)) {
       cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
     } else {
@@ -74,6 +90,18 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
         value = TRUE,
         na_pass = FALSE,
         label = paste("col_exists:", c)
+      )
+  }
+
+  # For type-mismatched columns, add a validation that will always fail.
+  for (c in type_mismatch_cols) {
+    dummy_col <- paste0("__type_mismatch_", c)
+    agent <- agent %>%
+      col_vals_equal(
+        columns = all_of(dummy_col),
+        value = TRUE,
+        na_pass = FALSE,
+        label = paste("type_mismatch:", c)
       )
   }
 

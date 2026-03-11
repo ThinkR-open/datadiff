@@ -76,5 +76,5 @@ rules for different data types, column-specific rules, and row validation settin
 }
 \examples{
 df <- data.frame(id = 1:3, value = c(1.1, 2.2, 3.3), name = c("A", "B", "C"))
-write_rules_template(df, key = "id", "my_rules.yaml")
+write_rules_template(df, key = "id", path = tempfile(fileext = ".yaml"))
 }

@@ -99,7 +99,8 @@ result <- compare_datasets_from_yaml(ref, cand)
 result <- compare_datasets_from_yaml(ref, cand, key = "id")
 
 # Compare datasets with custom YAML rules
-write_rules_template(ref, key = "id", path = "rules.yaml")
-result <- compare_datasets_from_yaml(ref, cand, key = "id", path = "rules.yaml")
+tmp <- tempfile(fileext = ".yaml")
+write_rules_template(ref, key = "id", path = tmp)
+result <- compare_datasets_from_yaml(ref, cand, key = "id", path = tmp)
 result$reponse
 }

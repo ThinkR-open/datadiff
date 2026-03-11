@@ -121,3 +121,32 @@ test_that("setup_pointblank_agent accepts various supported languages", {
   expect_equal(agent_it$lang, "it")
   expect_equal(agent_it$locale, "it_IT")
 })
+
+test_that("setup_pointblank_agent handles lazy table with missing_in_candidate and type_mismatch_cols", {
+  skip_if_not_installed("RSQLite")
+  skip_if_not_installed("dbplyr")
+
+  con <- DBI::dbConnect(RSQLite::SQLite(), ":memory:")
+  on.exit(DBI::dbDisconnect(con), add = TRUE)
+
+  DBI::dbWriteTable(con, "test_tbl", data.frame(val__ok = c(TRUE, TRUE)))
+  lazy_tbl <- dplyr::tbl(con, "test_tbl")
+
+  # Passing a lazy table exercises the dplyr::mutate() path (lines 52 and 63)
+  agent <- setup_pointblank_agent(
+    lazy_tbl,
+    cols_reference  = character(0),
+    common_cols     = character(0),
+    tol_cols        = c("val"),
+    row_validation_info = list(check_count = FALSE),
+    ref_suffix      = "__reference",
+    warn_at         = 0.1,
+    stop_at         = 0.1,
+    label           = "lazy test",
+    na_equal        = TRUE,
+    missing_in_candidate = "absent_col",
+    type_mismatch_cols   = "mismatched_col"
+  )
+
+  expect_s3_class(agent, "ptblank_agent")
+})

@@ -1,9 +1,11 @@
 Package: datadiff
 Title: Data Validation Based on YAML Rules
-Version: 0.4.1
-Authors@R: 
+Version: 0.4.3
+Authors@R: c(
     person("Vincent", "Guyader", , "vincent@thinkr.fr", role = c("cre", "aut"),
-           comment = c(ORCID = "0000-0003-0671-9270"))
+           comment = c(ORCID = "0000-0003-0671-9270")),
+    person("ThinkR", role = "cph"),
+    person("Agence technique de l'information sur l'hospitalisation", role = "spn") )
 Description: A comprehensive data validation package that allows comparing
     datasets using configurable validation rules defined in YAML files.
     Built on top of the pointblank package for robust data validation, it

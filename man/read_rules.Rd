@@ -17,6 +17,7 @@ Loads validation rules from a YAML file and ensures the format is valid.
 Adds default values for missing configuration sections.
 }
 \examples{
-# Assuming "rules.yaml" exists
-rules <- read_rules("rules.yaml")
+tmp <- tempfile(fileext = ".yaml")
+write_rules_template(data.frame(id = 1L, value = 1.0), key = "id", path = tmp)
+rules <- read_rules(tmp)
 }

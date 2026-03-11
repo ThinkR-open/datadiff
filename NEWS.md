@@ -1,3 +1,49 @@
+# datadiff 0.4.3
+
+## Bug fixes
+
+* Fix inconsistent tolerance comparison due to IEEE 754 floating-point
+  rounding. When `cand = ref + threshold` mathematically, the subtraction
+  `cand - ref` can exceed the threshold by a few ULPs (e.g.
+  `100.01 - 100.00 = 0.0100000000000051 > 0.01` in double precision),
+  causing a false validation failure. Fixed by adding a correction of
+  `8 * .Machine$double.eps * |ref|` to the threshold before comparing — a
+  value proportional to the operand magnitude that absorbs floating-point
+  representation error without meaningfully widening the user-specified
+  tolerance. The correction is applied in both the local data.frame path
+  and the lazy SQL path.
+
+## Documentation
+
+* README: add a full `by_name` example showing column-level rule overrides
+  (per-column absolute tolerance, mixed abs+rel, case-insensitive character
+  comparison) and a table explaining how `by_name` takes precedence over
+  `by_type`.
+
+# datadiff 0.4.2
+
+## Bug fixes
+
+* Fix crash (`sign(cand_vals): non-numeric argument to a mathematical function`)
+  when a column is numeric in the reference dataset but stored as character in
+  the candidate. The tolerance arithmetic (`sign()`, `abs()`, subtraction) was
+  applied unconditionally to all numeric reference columns, regardless of the
+  candidate column type.
+
+  The fix detects type mismatches between reference and candidate at the start
+  of `compare_datasets_from_yaml()` and:
+  - Emits a warning listing each mismatched column with its reference and
+    candidate types (e.g. `'year' (reference: numeric, candidate: character)`).
+  - Excludes mismatched columns from tolerance and equality comparison to avoid
+    the crash and prevent silent pass-through due to R's type coercion in `==`.
+  - Adds a dedicated failing validation step (labelled `type_mismatch: <column>`)
+    to the pointblank report for each mismatched column, so the mismatch is
+    clearly surfaced in the validation output.
+
+* `setup_pointblank_agent()` gains a `type_mismatch_cols` parameter (character
+  vector) to receive the list of columns with incompatible types between
+  reference and candidate.
+
 # datadiff 0.4.1
 
 ## Bug fixes

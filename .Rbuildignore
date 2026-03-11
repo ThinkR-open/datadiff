@@ -5,4 +5,9 @@
 ^CLAUDE\.md$
 ^tmpclaude-.*$
 ^validation_rules\.yaml$
-^rules.yaml$
+^rules\.yaml$
+^bug\.R$
+^ddd\.Rdata$
+^results_sas\.sas7bdat\.yaml$
+^bash\.exe\.stackdump$
+^README\.Rmd$
