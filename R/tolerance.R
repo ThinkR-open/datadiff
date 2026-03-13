@@ -106,11 +106,9 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
     within_tol <- absdiff <= cmp[[paste0(c, "__thresh")]] + fp_correction
 
     if (na_equal) {
-      # Si na_equal = TRUE, NA == NA et NaN == NaN sont considérés comme vrais
       cmp[[ok_col]] <- both_na | both_nan | same_inf |
         (!one_na & !one_nan & !one_inf & within_tol)
     } else {
-      # Si na_equal = FALSE, NA == NA et NaN == NaN sont considérés comme faux
       cmp[[ok_col]] <- same_inf | (!one_na & !one_nan & !one_inf & within_tol)
     }
   }

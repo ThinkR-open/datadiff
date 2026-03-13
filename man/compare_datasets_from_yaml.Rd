@@ -14,8 +14,8 @@ compare_datasets_from_yaml(
   ref_suffix = "__reference",
   label = NULL,
   error_msg_no_key = "Without keys, both tables must have the same number of rows.",
-  lang = "en",
-  locale = "en_US",
+  lang = getOption("datadiff.lang", "en"),
+  locale = getOption("datadiff.locale", "en_US"),
   extract_failed = TRUE,
   get_first_n = NULL,
   sample_n = NULL,
@@ -44,12 +44,17 @@ generated automatically based on the reference dataset structure.}
 
 \item{error_msg_no_key}{Error message when datasets have different row counts without keys}
 
-\item{lang}{Language code for pointblank reports (default: "fr"). Supported values include
-"en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish), "pt" (Portuguese),
-"zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc. See pointblank documentation for full list.}
+\item{lang}{Language code for pointblank reports. Defaults to the
+\code{datadiff.lang} option if set, otherwise \code{"en"}. Set globally
+with \code{options(datadiff.lang = "fr")}. Supported values include
+"en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish),
+"pt" (Portuguese), "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc.
+See pointblank documentation for full list.}
 
-\item{locale}{Locale code for number and date formatting (default: "fr_FR"). Examples: "en_US",
-"en_GB", "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".}
+\item{locale}{Locale code for number and date formatting. Defaults to the
+\code{datadiff.locale} option if set, otherwise \code{"en_US"}. Set globally
+with \code{options(datadiff.locale = "fr_FR")}. Examples: "en_GB", "fr_FR",
+"de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".}
 
 \item{extract_failed}{Logical indicating whether to collect rows that failed validation
 (default: TRUE). Set to FALSE to reduce memory usage for large datasets with many errors.}

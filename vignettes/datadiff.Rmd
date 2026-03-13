@@ -1,0 +1,859 @@
+---
+title: "Introduction to datadiff"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Introduction to datadiff}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(datadiff)
+```
+
+`datadiff` compares two datasets — a **reference** and a **candidate** — using
+validation rules defined in a YAML file. It is built on top of
+[pointblank](https://github.com/rstudio/pointblank) and supports exact
+matching, tolerance-based numeric comparisons, text normalization, and row
+count validation.
+
+The typical workflow is:
+
+1. Generate a YAML rules template from the reference dataset.
+2. Edit the YAML to configure tolerances, ignored columns, etc.
+3. Call `compare_datasets_from_yaml()` and inspect the result.
+
+---
+
+## 1. A first comparison
+
+```{r first-comparison}
+library(datadiff)
+
+ref <- data.frame(
+  id       = 1:4,
+  revenue  = c(1000.00, 2000.00, 3000.00, 4000.00),
+  category = c("A", "B", "C", "D"),
+  active   = c(TRUE, TRUE, FALSE, TRUE)
+)
+
+cand <- data.frame(
+  id       = 1:4,
+  revenue  = c(1000.005, 2000.001, 3000.009, 4000.00),  # tiny differences
+  category = c("a", "b", "c", "D"),                      # lowercase
+  active   = c(TRUE, TRUE, FALSE, TRUE)
+)
+```
+
+Generate a rules template and tune it:
+
+```{r first-rules, results = "hide"}
+rules_path <- tempfile(fileext = ".yaml")
+
+write_rules_template(
+  ref,
+  key                        = "id",
+  path                       = rules_path,
+  numeric_abs                = 0.01,   # accept differences up to 0.01
+  character_case_insensitive = TRUE    # ignore case for all char columns
+)
+```
+
+Run the comparison:
+
+```{r first-result}
+result <- compare_datasets_from_yaml(ref, cand, key = "id", path = rules_path)
+result$all_passed
+```
+
+---
+
+## 2. Understanding the return value
+
+`compare_datasets_from_yaml()` returns a list with six elements:
+
+```{r return-structure}
+names(result)
+```
+
+| Element | Description |
+|---------|-------------|
+| `all_passed` | `TRUE` if every validation step passed |
+| `agent` | The configured pointblank agent (before interrogation) |
+| `reponse` | The interrogated pointblank agent (full results) |
+| `missing_in_candidate` | Columns present in reference but absent from candidate |
+| `extra_in_candidate` | Columns present in candidate but absent from reference |
+| `applied_rules` | The effective per-column rules that were applied |
+
+### Inspecting applied rules
+
+`applied_rules` shows the exact rules used for each column — useful to verify
+that `by_name` overrides were applied correctly:
+
+```{r applied-rules}
+result$applied_rules$revenue
+result$applied_rules$category
+```
+
+### Column presence
+
+```{r col-presence}
+result$missing_in_candidate
+result$extra_in_candidate
+```
+
+### Accessing failing rows
+
+When `all_passed` is `FALSE`, use `pointblank::get_sundered_data()` to
+extract the rows that failed at least one validation step:
+
+```{r failing-rows}
+ref_fail <- data.frame(id = 1:5, value = c(1, 2, 3, 4, 5))
+cand_fail <- data.frame(id = 1:5, value = c(1, 2, 99, 4, 99))  # rows 3 and 5 wrong
+
+result_fail <- compare_datasets_from_yaml(ref_fail, cand_fail, key = "id")
+result_fail$all_passed
+
+# Rows that failed at least one step
+failed_rows <- pointblank::get_sundered_data(result_fail$reponse, type = "fail")
+failed_rows
+```
+
+The `type = "pass"` variant returns rows that passed all steps. This is
+useful to understand the scope of the problem before investigating further.
+
+### Controlling how many failing rows are extracted
+
+For large datasets, extracting all failing rows can consume significant memory.
+Three mutually exclusive parameters cap this:
+
+```{r extract-params, eval = FALSE}
+# Keep only the first 100 failing rows per validation step
+result <- compare_datasets_from_yaml(ref, cand, key = "id",
+                                     get_first_n = 100)
+
+# Random sample of 50 failing rows per step
+result <- compare_datasets_from_yaml(ref, cand, key = "id",
+                                     sample_n = 50)
+
+# 10% of failing rows, capped at 500
+result <- compare_datasets_from_yaml(ref, cand, key = "id",
+                                     sample_frac = 0.1, sample_limit = 500)
+
+# Disable extraction entirely (fastest — only pass/fail counts are kept)
+result <- compare_datasets_from_yaml(ref, cand, key = "id",
+                                     extract_failed = FALSE)
+```
+
+---
+
+## 3. Comparing without a YAML file
+
+When `path = NULL` (the default), `datadiff` auto-generates rules from the
+reference dataset structure. This is useful for a quick sanity check without
+any configuration:
+
+```{r no-yaml}
+ref_quick  <- data.frame(id = 1:3, x = c(1.0, 2.0, 3.0), label = c("A", "B", "C"))
+cand_quick <- data.frame(id = 1:3, x = c(1.0, 2.0, 3.0), label = c("A", "B", "C"))
+
+# No path needed — rules are generated on the fly
+result_quick <- compare_datasets_from_yaml(ref_quick, cand_quick, key = "id")
+result_quick$all_passed
+```
+
+The auto-generated rules use near-exact numeric tolerance (`abs = 1e-9`) and
+exact character matching — equivalent to calling `write_rules_template()` with
+all defaults.
+
+---
+
+## 4. YAML rules in depth
+
+`write_rules_template()` generates a fully annotated YAML. Here is a complete
+example with all sections explained:
+
+```yaml
+version: 1
+
+defaults:
+  na_equal: yes           # treat NA == NA as a pass
+  ignore_columns:         # columns excluded from comparison entirely
+    - documentation
+    - updated_at
+  keys: id                # join key (single or composite)
+  label: ref vs cand      # label shown in the pointblank report
+
+row_validation:
+  check_count: yes
+  expected_count: ~       # null = use reference row count
+  tolerance: 0            # exact match required
+
+by_type:                  # rules applied to all columns of a given type
+  numeric:
+    abs: 1.0e-09          # near-exact by default
+    rel: 0
+  integer:
+    abs: 0                # integers must match exactly
+  character:
+    equal_mode: exact
+    case_insensitive: no
+    trim: no
+  date:
+    equal_mode: exact
+  datetime:
+    equal_mode: exact
+  logical:
+    equal_mode: exact
+
+by_name:                  # column-specific overrides (take precedence over by_type)
+  id: []                  # no override — inherits integer rule
+  revenue:
+    abs: 0.01             # accept differences up to 0.01
+  category:
+    case_insensitive: yes
+    trim: yes
+```
+
+Rules are **merged**: `by_name` entries extend or override `by_type` entries.
+A field not listed in `by_name` keeps its `by_type` default.
+
+| Column | Effective rule | Source |
+|--------|---------------|--------|
+| `id` | `abs: 0` | `by_type.integer` |
+| `revenue` | `abs: 0.01, rel: 0` | `by_name` overrides `by_type.numeric` |
+| `category` | `case_insensitive: yes, trim: yes` | `by_name` overrides `by_type.character` |
+
+### Reading rules from a file
+
+Use `read_rules()` to inspect what was actually loaded — useful for debugging
+or building tooling on top of `datadiff`:
+
+```{r read-rules}
+loaded <- read_rules(rules_path)
+
+loaded$defaults$na_equal
+loaded$by_type$numeric
+loaded$by_type$character
+```
+
+---
+
+## 5. A realistic `by_name` example
+
+The following dataset mixes several column types, each requiring a different
+validation strategy:
+
+```{r byname-example}
+ref_full <- data.frame(
+  id          = 1:4,
+  price       = c(9.99, 19.99, 4.50, 149.00),      # numeric: small absolute tolerance
+  quantity    = c(10L, 5L, 20L, 1L),                # integer: exact
+  description = c("Widget A", "Widget B", "  Gadget", "TOOL"),  # needs trim + case
+  in_stock    = c(TRUE, TRUE, FALSE, TRUE),          # logical: exact
+  created     = as.Date(c("2024-01-01", "2024-01-02",
+                           "2024-01-03", "2024-01-04"))
+)
+
+cand_full <- data.frame(
+  id          = 1:4,
+  price       = c(9.995, 19.99, 4.50, 149.00),  # row 1: diff = 0.005 < 0.01
+  quantity    = c(10L, 5L, 20L, 1L),
+  description = c("widget a", "Widget B", "Gadget", "tool"),  # case + spaces
+  in_stock    = c(TRUE, TRUE, FALSE, TRUE),
+  created     = as.Date(c("2024-01-01", "2024-01-02",
+                           "2024-01-03", "2024-01-04"))
+)
+```
+
+Build the YAML and write column-specific overrides:
+
+```{r byname-rules, results = "hide"}
+rules_full <- tempfile(fileext = ".yaml")
+
+write_rules_template(
+  ref_full,
+  key                        = "id",
+  path                       = rules_full,
+  numeric_abs                = 1e-9,     # conservative default
+  character_case_insensitive = FALSE,    # strict default for character
+  character_trim             = FALSE
+)
+
+# Read, patch by_name, write back
+rules_obj <- read_rules(rules_full)
+
+rules_obj$by_name$price       <- list(abs = 0.01)           # ±0.01 for price
+rules_obj$by_name$description <- list(case_insensitive = TRUE, trim = TRUE)
+
+yaml::write_yaml(rules_obj, rules_full)
+```
+
+```{r byname-result}
+result_full <- compare_datasets_from_yaml(ref_full, cand_full,
+                                          key = "id", path = rules_full)
+result_full$all_passed
+
+# Verify the effective rules for each column
+result_full$applied_rules$price
+result_full$applied_rules$description
+result_full$applied_rules$quantity
+```
+
+---
+
+## 6. Numeric tolerance
+
+### Formula
+
+For every numeric column, the comparison uses a single combined threshold:
+
+```
+threshold = abs + rel × |reference_value|
+PASS  if  |candidate − reference| ≤ threshold
+```
+
+### Absolute tolerance (`abs`)
+
+The threshold is constant, independent of the magnitude of the values:
+
+```{r abs-tolerance}
+ref_num  <- data.frame(id = 1:3, price = c(1.00, 1000.00, 1e6))
+cand_ok  <- data.frame(id = 1:3, price = c(1.005, 1000.005, 1e6 + 0.005))
+cand_nok <- data.frame(id = 1:3, price = c(1.02,  1000.02,  1e6 + 0.02))
+
+rules_abs <- tempfile(fileext = ".yaml")
+write_rules_template(ref_num, key = "id", path = rules_abs, numeric_abs = 0.01)
+
+compare_datasets_from_yaml(ref_num, cand_ok,  key = "id", path = rules_abs)$all_passed
+compare_datasets_from_yaml(ref_num, cand_nok, key = "id", path = rules_abs)$all_passed
+```
+
+The same threshold `0.01` applies whether the value is `1` or `1 000 000`.
+
+### Relative tolerance (`rel`)
+
+The threshold is proportional to the reference value — useful when you want
+to accept a percentage deviation:
+
+```{r rel-tolerance}
+rules_rel <- tempfile(fileext = ".yaml")
+write_rules_template(ref_num, key = "id", path = rules_rel,
+                     numeric_abs = 0, numeric_rel = 0.01)
+
+# ref = 1000, diff = 9, threshold = 0.01 × 1000 = 10 → PASS
+cand_pct <- data.frame(id = 1:3, price = c(1.009, 1009.0, 1e6 * 1.009))
+compare_datasets_from_yaml(ref_num, cand_pct, key = "id", path = rules_rel)$all_passed
+```
+
+> **Warning**: if a reference value is `0`, the relative threshold is `0`
+> and any difference will be flagged as an error. Use `abs` as a safety floor.
+
+### Mixed mode
+
+Combine both parameters when values span a wide range including near-zero:
+
+```yaml
+by_type:
+  numeric:
+    abs: 0.001   # floor: protects against false positives when ref ≈ 0
+    rel: 0.005   # +0.5% for larger values
+```
+
+For `ref = 1 000 000`: `threshold = 0.001 + 0.005 × 1 000 000 = 5000.001`
+
+> **Rule of thumb**: keep `rel: 0` (the default) unless you explicitly need
+> a tolerance proportional to the magnitude of the data.
+
+### IEEE 754 correction
+
+Floating-point subtraction can introduce rounding errors:
+
+```{r ieee754}
+# In double precision, this is slightly above 0.01
+100.01 - 100.00
+```
+
+`datadiff` automatically adds a correction of `8 × .Machine$double.eps × |ref|`
+to the threshold to absorb these representation errors without meaningfully
+widening the user-specified tolerance.
+
+### `warn_at` and `stop_at`
+
+These two parameters control the pointblank action thresholds, expressed as
+the **fraction** of rows that fail a validation step:
+
+```{r warn-stop, eval = FALSE}
+result <- compare_datasets_from_yaml(
+  ref, cand,
+  key     = "id",
+  warn_at = 0.05,   # warn if > 5% of rows fail any step
+  stop_at = 0.20    # stop (error) if > 20% of rows fail any step
+)
+```
+
+The default (`1e-14`) means that **any single failing row** triggers the
+threshold, which is appropriate for data validation where zero differences
+are expected. Raise these values if you want the report to remain green
+while a small fraction of rows diverge.
+
+---
+
+## 7. Text comparison
+
+Three independent options control character column comparison:
+
+| Option | Effect |
+|--------|--------|
+| `case_insensitive: yes` | Convert both values to lowercase before comparing |
+| `trim: yes` | Strip leading/trailing whitespace before comparing |
+| `equal_mode: normalized` | Apply both transformations |
+
+```{r text-comparison}
+ref_txt  <- data.frame(id = 1:4, label = c("Hello", "World", "Foo", "Bar"))
+cand_txt <- data.frame(
+  id    = 1:4,
+  label = c("hello", "  World  ", "FOO", "Baz")  # case, spaces, mismatch
+)
+
+# Strict: rows 1, 2, 3 fail
+rules_strict <- tempfile(fileext = ".yaml")
+write_rules_template(ref_txt, key = "id", path = rules_strict)
+compare_datasets_from_yaml(ref_txt, cand_txt, key = "id",
+                           path = rules_strict)$all_passed
+
+# Relaxed: case + trim — only row 4 ("Baz" vs "Bar") fails
+rules_relax <- tempfile(fileext = ".yaml")
+write_rules_template(ref_txt, key = "id", path = rules_relax,
+                     character_case_insensitive = TRUE,
+                     character_trim             = TRUE)
+compare_datasets_from_yaml(ref_txt, cand_txt, key = "id",
+                           path = rules_relax)$all_passed
+```
+
+Column-level overrides in `by_name` apply only to the specified column,
+leaving all other character columns unaffected.
+
+---
+
+## 8. Row count validation
+
+The `row_validation` section checks that the candidate has the expected
+number of rows.
+
+```{r row-validation}
+ref_rows  <- data.frame(id = 1:5, value = 1:5)
+cand_ok   <- data.frame(id = 1:5, value = 1:5)   # 5 rows — exact match
+cand_more <- data.frame(id = 1:7, value = 1:7)   # 7 rows — 2 extra
+
+rules_count <- tempfile(fileext = ".yaml")
+write_rules_template(ref_rows, key = "id", path = rules_count,
+                     check_count_default         = TRUE,
+                     expected_count_default      = 5,
+                     row_count_tolerance_default = 0)
+
+compare_datasets_from_yaml(ref_rows, cand_ok,   key = "id",
+                           path = rules_count)$all_passed
+compare_datasets_from_yaml(ref_rows, cand_more, key = "id",
+                           path = rules_count)$all_passed
+```
+
+With a tolerance:
+
+```{r row-tolerance}
+rules_tol <- tempfile(fileext = ".yaml")
+write_rules_template(ref_rows, key = "id", path = rules_tol,
+                     check_count_default         = TRUE,
+                     expected_count_default      = 5,
+                     row_count_tolerance_default = 3)  # accept 5 ± 3
+
+# 7 rows: |7 - 5| = 2 ≤ 3 → PASS
+compare_datasets_from_yaml(ref_rows, cand_more, key = "id",
+                           path = rules_tol)$all_passed
+```
+
+When `expected_count` is `null` in the YAML (or `expected_count_default = NULL`
+in `write_rules_template()`), the reference row count is used as the target.
+
+---
+
+## 9. Handling NA values
+
+The `na_equal` setting controls whether `NA == NA` is treated as a pass:
+
+```{r na-handling}
+ref_na  <- data.frame(id = 1:3, value = c(1.0, NA, 3.0))
+cand_na <- data.frame(id = 1:3, value = c(1.0, NA, 3.0))  # identical NAs
+
+# na_equal: yes (default) — NA == NA passes
+rules_na_yes <- tempfile(fileext = ".yaml")
+write_rules_template(ref_na, key = "id", path = rules_na_yes,
+                     na_equal_default = TRUE)
+compare_datasets_from_yaml(ref_na, cand_na, key = "id",
+                           path = rules_na_yes)$all_passed
+
+# na_equal: no — NA == NA fails
+rules_na_no <- tempfile(fileext = ".yaml")
+write_rules_template(ref_na, key = "id", path = rules_na_no,
+                     na_equal_default = FALSE)
+compare_datasets_from_yaml(ref_na, cand_na, key = "id",
+                           path = rules_na_no)$all_passed
+```
+
+`na_equal` applies to all column types including numeric (with tolerance),
+character, logical, and date columns.
+
+---
+
+## 10. Column management
+
+### Ignoring columns
+
+Columns listed in `ignore_columns_default` are excluded from comparison.
+Presence/absence checks for those columns are also skipped:
+
+```{r ignore-columns}
+ref_ign  <- data.frame(id = 1:3, value = 1:3, updated_at = Sys.time())
+cand_ign <- data.frame(id = 1:3, value = 1:3,
+                       updated_at = Sys.time() + 3600)  # different timestamp
+
+rules_ign <- tempfile(fileext = ".yaml")
+write_rules_template(ref_ign, key = "id", path = rules_ign,
+                     ignore_columns_default = "updated_at")
+
+compare_datasets_from_yaml(ref_ign, cand_ign, key = "id",
+                           path = rules_ign)$all_passed
+```
+
+### Missing and extra columns
+
+Columns present in the reference but absent from the candidate generate a
+dedicated failing step. Extra columns in the candidate are reported but do
+not cause a failure:
+
+```{r col-analysis}
+ref_cols  <- data.frame(id = 1:2, a = 1:2, b = 1:2)
+cand_cols <- data.frame(id = 1:2, a = 1:2, c = 1:2)  # b missing, c extra
+
+result_cols <- compare_datasets_from_yaml(ref_cols, cand_cols, key = "id")
+result_cols$missing_in_candidate   # b
+result_cols$extra_in_candidate     # c
+result_cols$all_passed             # FALSE: b is missing
+```
+
+### Utility: `analyze_columns()`
+
+`analyze_columns()` exposes the column comparison logic independently — useful
+for pre-flight checks before running the full validation:
+
+```{r analyze-columns}
+analysis <- analyze_columns(ref_cols, cand_cols,
+                            ignore_columns = character(0))
+str(analysis)
+```
+
+---
+
+## 11. Key-based vs positional comparison
+
+### With a key
+
+A key column joins the candidate to the reference, handling different row
+orders and unequal row counts gracefully:
+
+```{r with-key}
+ref_key  <- data.frame(id = 1:3, value = c(10, 20, 30))
+cand_key <- data.frame(id = c(3, 1, 2), value = c(30, 10, 20))  # shuffled
+
+result_key <- compare_datasets_from_yaml(ref_key, cand_key, key = "id")
+result_key$all_passed
+```
+
+### Without a key (positional)
+
+Rows are compared position by position. Both datasets must have the same
+number of rows:
+
+```{r positional}
+ref_pos  <- data.frame(value = c(1.0, 2.0, 3.0))
+cand_pos <- data.frame(value = c(1.0, 2.0, 3.0))
+
+result_pos <- compare_datasets_from_yaml(ref_pos, cand_pos)
+result_pos$all_passed
+```
+
+### Composite keys
+
+Multiple columns can form a composite key:
+
+```{r composite-key}
+ref_comp <- data.frame(
+  year  = c(2023, 2023, 2024),
+  month = c(1, 2, 1),
+  value = c(100, 200, 300)
+)
+cand_comp <- data.frame(
+  year  = c(2024, 2023, 2023),
+  month = c(1,    2,    1),
+  value = c(300,  200,  100)
+)
+
+result_comp <- compare_datasets_from_yaml(ref_comp, cand_comp,
+                                          key = c("year", "month"))
+result_comp$all_passed
+```
+
+### Key in YAML vs key parameter
+
+The `key` parameter to `compare_datasets_from_yaml()` takes precedence over
+the `keys` field in the YAML `defaults` section. This lets you reuse a shared
+YAML file while overriding the join key programmatically:
+
+```{r key-override, results = "hide"}
+rules_key <- tempfile(fileext = ".yaml")
+write_rules_template(ref_comp, key = "year", path = rules_key)  # YAML says year
+
+# Override at call time with the composite key
+result_override <- compare_datasets_from_yaml(
+  ref_comp, cand_comp,
+  key  = c("year", "month"),   # overrides YAML
+  path = rules_key
+)
+result_override$all_passed
+```
+
+### Duplicate key detection
+
+If key values are not unique, `datadiff` warns before running the comparison:
+
+```{r duplicate-keys, warning = TRUE}
+ref_dup  <- data.frame(id = c(1, 1, 2), value = c(10, 11, 20))
+cand_dup <- data.frame(id = c(1, 2),    value = c(10, 20))
+
+tryCatch(
+  compare_datasets_from_yaml(ref_dup, cand_dup, key = "id"),
+  warning = function(w) message("Warning: ", conditionMessage(w))
+)
+```
+
+---
+
+## 12. Type mismatch detection
+
+When a column has incompatible types in reference and candidate, `datadiff`
+warns and adds a dedicated failing step — instead of silently coercing or
+crashing:
+
+```{r type-mismatch, warning = TRUE}
+ref_type  <- data.frame(id = 1:2, year = c(2023L, 2024L))  # integer
+cand_type <- data.frame(id = 1:2, year = c("2023", "2024")) # character
+
+tryCatch(
+  compare_datasets_from_yaml(ref_type, cand_type, key = "id"),
+  warning = function(w) message("Warning: ", conditionMessage(w))
+)
+```
+
+`integer` and `numeric` are treated as compatible types — tolerance arithmetic
+works correctly across them and no mismatch is raised.
+
+---
+
+## 13. Utility functions
+
+### `detect_column_types()`
+
+Returns the `datadiff` type inferred for each column (`"integer"`,
+`"numeric"`, `"character"`, `"date"`, `"datetime"`, `"logical"`):
+
+```{r detect-types}
+df_types <- data.frame(
+  id        = 1L,
+  amount    = 1.5,
+  label     = "x",
+  flag      = TRUE,
+  day       = Sys.Date(),
+  timestamp = Sys.time()
+)
+
+detect_column_types(df_types)
+```
+
+These are the same types used to match columns against `by_type` rules in the
+YAML.
+
+### `derive_column_rules()`
+
+Shows the merged per-column rules for a given dataset and rules object —
+equivalent to `result$applied_rules` but callable without running the full
+comparison:
+
+```{r derive-rules}
+rules_obj2 <- read_rules(rules_path)
+merged <- derive_column_rules(ref, rules_obj2)
+merged$revenue
+merged$category
+```
+
+### `analyze_columns()`
+
+Already shown in section 10. Useful to quickly check which columns are common,
+missing, or extra before committing to a full validation run.
+
+### `preprocess_dataframe()`
+
+Applies text normalization rules to a dataframe. Useful for inspecting what
+the data looks like after normalization, before comparing:
+
+```{r preprocess}
+df_raw <- data.frame(label = c("  Hello ", "WORLD", "  Foo  "))
+rules_norm <- list(
+  label = list(equal_mode = "normalized",
+               case_insensitive = TRUE,
+               trim = TRUE)
+)
+preprocess_dataframe(df_raw, rules_norm)
+```
+
+### `add_tolerance_columns()`
+
+Adds the `__absdiff`, `__thresh`, and `__ok` diagnostic columns to a
+comparison dataframe. Useful for debugging which rows are right on the edge
+of the tolerance threshold:
+
+```{r tolerance-debug}
+cmp <- data.frame(
+  value            = c(1.005, 1.02, 1.0),
+  value__reference = c(1.000, 1.00, 1.0)
+)
+rules_debug <- list(value = list(abs = 0.01, rel = 0))
+
+cmp_annotated <- add_tolerance_columns(cmp, "value", rules_debug,
+                                       ref_suffix = "__reference",
+                                       na_equal   = TRUE)
+cmp_annotated[, c("value__absdiff", "value__thresh", "value__ok")]
+```
+
+---
+
+## 14. Language and locale
+
+By default, pointblank reports are rendered in English. You can change
+the language per call or globally for a session.
+
+### Per call
+
+```{r lang-per-call, eval = FALSE}
+result_fr <- compare_datasets_from_yaml(
+  ref, cand,
+  key    = "id",
+  lang   = "fr",
+  locale = "fr_FR"
+)
+```
+
+### Global option
+
+Set once in your script or `.Rprofile` and all subsequent calls will use it:
+
+```{r lang-global, eval = FALSE}
+options(datadiff.lang   = "fr",
+        datadiff.locale = "fr_FR")
+
+# All calls now produce French reports without passing lang/locale every time
+result <- compare_datasets_from_yaml(ref, cand, key = "id", path = rules_path)
+```
+
+Supported languages include `"en"`, `"fr"`, `"de"`, `"it"`, `"es"`, `"pt"`,
+`"zh"`, `"ja"`, `"ru"`. See the pointblank documentation for the full list.
+
+---
+
+## 15. Working with large datasets
+
+### Lazy tables (dbplyr)
+
+Any SQL-backed table wrapped in `dplyr::tbl()` can be passed directly. The
+join, normalization, and boolean expressions are pushed down to SQL — no data
+is loaded into R until the final slim result table:
+
+```{r lazy-dbplyr, eval = FALSE}
+library(DBI)
+library(dplyr)
+
+con <- DBI::dbConnect(RSQLite::SQLite(), ":memory:")
+DBI::dbWriteTable(con, "reference", ref)
+DBI::dbWriteTable(con, "candidate", cand)
+
+tbl_ref  <- dplyr::tbl(con, "reference")
+tbl_cand <- dplyr::tbl(con, "candidate")
+
+result_lazy <- compare_datasets_from_yaml(
+  tbl_ref, tbl_cand,
+  key  = "id",
+  path = rules_path
+)
+
+result_lazy$all_passed
+DBI::dbDisconnect(con)
+```
+
+This works with any DBI-compatible backend: SQLite, PostgreSQL, Snowflake, etc.
+
+### Arrow / Parquet (out-of-core)
+
+For files too large to fit in RAM, pass `arrow::open_dataset()` directly — the
+package handles the Arrow → DuckDB conversion internally with a single private
+connection:
+
+```{r large-arrow, eval = FALSE}
+library(arrow)
+
+ds_ref  <- arrow::open_dataset("path/to/reference/")
+ds_cand <- arrow::open_dataset("path/to/candidate/")
+
+# Generate a template from the schema (no data loaded into RAM)
+write_rules_template(ds_ref, key = "id", path = "rules.yaml")
+
+result <- compare_datasets_from_yaml(
+  data_reference      = ds_ref,
+  data_candidate      = ds_cand,
+  key                 = "id",
+  path                = "rules.yaml",
+  duckdb_memory_limit = "8GB"    # tune to your machine's RAM
+)
+
+result$all_passed
+```
+
+> Do **not** call `arrow::to_duckdb()` yourself before passing to `datadiff`.
+> The package opens its own private DuckDB connection; passing pre-converted
+> tables from a different connection will cause a cross-connection join error.
+
+### Memory tuning
+
+| Machine RAM | Recommended `duckdb_memory_limit` |
+|-------------|-----------------------------------|
+| 8 GB | `"3GB"` |
+| 16 GB | `"6GB"` |
+| 32 GB | `"8GB"` (default) |
+| 64 GB+ | `"20GB"` |
+
+---
+
+## Summary
+
+| Function | Role |
+|----------|------|
+| `write_rules_template()` | Generate a YAML rules template from a reference dataset |
+| `read_rules()` | Load and validate a YAML rules file |
+| `compare_datasets_from_yaml()` | Compare reference and candidate datasets |
+| `detect_column_types()` | Inspect the type inferred for each column |
+| `derive_column_rules()` | See the merged per-column rules for a dataset + rules pair |
+| `analyze_columns()` | Compare column structure between two datasets |
+| `preprocess_dataframe()` | Apply text normalization rules to a dataframe |
+| `add_tolerance_columns()` | Add `__absdiff`, `__thresh`, `__ok` columns for debugging |

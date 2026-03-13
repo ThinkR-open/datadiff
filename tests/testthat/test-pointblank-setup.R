@@ -71,8 +71,8 @@ test_that("setup_pointblank_agent uses French language by default", {
                                   warn_at = 0.1, stop_at = 0.1, label = "Test", na_equal = TRUE)
 
   expect_s3_class(agent, "ptblank_agent")
-  expect_equal(agent$lang, "fr")
-  expect_equal(agent$locale, "fr_FR")
+  expect_equal(agent$lang, "en")
+  expect_equal(agent$locale, "en_US")
 })
 
 test_that("setup_pointblank_agent accepts custom language parameters", {

@@ -13,11 +13,16 @@
 #' @param stop_at Stop threshold (fraction of failing tests)
 #' @param label Descriptive label for the validation
 #' @param na_equal Logical indicating if NA values are considered equal
-#' @param lang Language code for pointblank reports (default: "fr"). Supported values include
-#'   "en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish), "pt" (Portuguese),
-#'   "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc. See pointblank documentation for full list.
-#' @param locale Locale code for number and date formatting (default: "fr_FR"). Examples: "en_US",
-#'   "en_GB", "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".
+#' @param lang Language code for pointblank reports. Defaults to the
+#'   \code{datadiff.lang} option if set, otherwise \code{"en"}. Set globally
+#'   with \code{options(datadiff.lang = "fr")}. Supported values include
+#'   "en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish),
+#'   "pt" (Portuguese), "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc.
+#'   See pointblank documentation for full list.
+#' @param locale Locale code for number and date formatting. Defaults to the
+#'   \code{datadiff.locale} option if set, otherwise \code{"en_US"}. Set globally
+#'   with \code{options(datadiff.locale = "fr_FR")}. Examples: "en_GB", "fr_FR",
+#'   "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".
 #' @param missing_in_candidate Character vector of columns missing in candidate dataset
 #' @param type_mismatch_cols Character vector of columns whose type differs between
 #'   reference and candidate (e.g. numeric in reference, character in candidate).
@@ -40,7 +45,7 @@
 #' @export
 setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
                                    row_validation_info = NULL, ref_suffix, warn_at, stop_at, label,
-                                   na_equal, lang = "fr", locale = "fr_FR",
+                                   na_equal, lang = getOption("datadiff.lang", "en"), locale = getOption("datadiff.locale", "en_US"),
                                    missing_in_candidate = character(0),
                                    type_mismatch_cols = character(0),
                                    add_col_exists_steps = TRUE) {
@@ -128,8 +133,6 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
     agent <- agent %>% col_vals_equal(columns = all_of(ok_col), value = TRUE, na_pass = FALSE)
   }
 
-  # Add row count validation if needed
-  # Use colnames() instead of names() to work correctly with lazy tables
   if (!is.null(row_validation_info) && isTRUE(row_validation_info$check_count) && "row_count_ok" %in% get_col_names(cmp)) {
     agent <- agent %>% col_vals_equal(columns = all_of("row_count_ok"), value = TRUE, na_pass = FALSE)
   }

@@ -43,9 +43,8 @@ write_rules_template <- function(data_reference,
                                  datetime_equal_mode = "exact",
                                  logical_equal_mode = "exact") {
 
-  # Validate key if provided
-  # Use a 0-row collect to retrieve column names and types: works for both local
-  # data.frames and lazy tables (tbl_lazy) without loading all rows.
+  # 0-row collect to retrieve column names and types without loading data:
+  # works for both local data.frames and lazy tables (tbl_lazy).
   .ref_schema    <- dplyr::collect(utils::head(data_reference, 0L))
   .ref_col_names <- names(.ref_schema)
 
@@ -127,11 +126,16 @@ read_rules <- function(path) {
 #' @param ref_suffix Suffix for reference columns in comparison dataframe (default: "__reference")
 #' @param label Descriptive label for the validation report
 #' @param error_msg_no_key Error message when datasets have different row counts without keys
-#' @param lang Language code for pointblank reports (default: "fr"). Supported values include
-#'   "en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish), "pt" (Portuguese),
-#'   "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc. See pointblank documentation for full list.
-#' @param locale Locale code for number and date formatting (default: "fr_FR"). Examples: "en_US",
-#'   "en_GB", "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".
+#' @param lang Language code for pointblank reports. Defaults to the
+#'   \code{datadiff.lang} option if set, otherwise \code{"en"}. Set globally
+#'   with \code{options(datadiff.lang = "fr")}. Supported values include
+#'   "en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish),
+#'   "pt" (Portuguese), "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc.
+#'   See pointblank documentation for full list.
+#' @param locale Locale code for number and date formatting. Defaults to the
+#'   \code{datadiff.locale} option if set, otherwise \code{"en_US"}. Set globally
+#'   with \code{options(datadiff.locale = "fr_FR")}. Examples: "en_GB", "fr_FR",
+#'   "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".
 #' @param extract_failed Logical indicating whether to collect rows that failed validation
 #'   (default: TRUE). Set to FALSE to reduce memory usage for large datasets with many errors.
 #' @param get_first_n Integer specifying the maximum number of failed rows to extract per
@@ -183,8 +187,8 @@ compare_datasets_from_yaml <- function(data_reference,
                                        ref_suffix = "__reference",
                                        label = NULL,
                                        error_msg_no_key = "Without keys, both tables must have the same number of rows.",
-                                       lang = "en",
-                                       locale = "en_US",
+                                       lang = getOption("datadiff.lang", "en"),
+                                       locale = getOption("datadiff.locale", "en_US"),
                                        extract_failed = TRUE,
                                        get_first_n = NULL,
                                        sample_n = NULL,
@@ -315,7 +319,6 @@ compare_datasets_from_yaml <- function(data_reference,
     cand_has_dups <- nrow(cand_dups) > 0
 
     if (ref_has_dups || cand_has_dups) {
-      # Build detailed warning message
       warning_parts <- c()
 
       if (ref_has_dups) {
@@ -366,7 +369,6 @@ compare_datasets_from_yaml <- function(data_reference,
     }
   }
 
-  # Analyze columns
   col_analysis <- analyze_columns(data_reference, data_candidate, ignore_columns = ignore_columns)
   cols_reference <- col_analysis$cols_reference
   cols_candidate <- col_analysis$cols_candidate
@@ -410,7 +412,6 @@ compare_datasets_from_yaml <- function(data_reference,
   data_reference_p <- preprocess_dataframe(data_reference, col_rules, schema = schema_ref)
   data_candidate_p <- preprocess_dataframe(data_candidate, col_rules, schema = schema_cand)
 
-  # Get row validation information
   row_validation_info <- validate_row_counts(data_reference_p, data_candidate_p, rules)
 
   if (!is.null(key)) {
@@ -459,7 +460,6 @@ compare_datasets_from_yaml <- function(data_reference,
   }, FUN.VALUE = logical(1))]
   tol_cols <- setdiff(tol_cols, type_mismatch_cols)
 
-  # Add tolerance columns
   cmp <- add_tolerance_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
 
   # For lazy tables, pre-compute equality columns for non-tolerance columns.
@@ -496,7 +496,6 @@ compare_datasets_from_yaml <- function(data_reference,
 
   # Add row count validation column if needed
   if (row_validation_info$check_count) {
-    # Calculate if row count validation passes
     expected <- row_validation_info$expected_count
     if (!is.null(expected)) {
       row_count_ok <- abs(row_validation_info$cand_count - expected) <= row_validation_info$tolerance

@@ -27,10 +27,13 @@ Suggests:
     DBI,
     dbplyr,
     duckdb,
+    knitr,
+    rmarkdown,
     RSQLite,
     stringr,
     testthat (>= 3.0.0),
     tibble
+VignetteBuilder: knitr
 URL: https://github.com/ThinkR-open/datadiff
 BugReports: https://github.com/ThinkR-open/datadiff/issues
 Encoding: UTF-8

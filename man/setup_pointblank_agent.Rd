@@ -15,8 +15,8 @@ setup_pointblank_agent(
   stop_at,
   label,
   na_equal,
-  lang = "fr",
-  locale = "fr_FR",
+  lang = getOption("datadiff.lang", "en"),
+  locale = getOption("datadiff.locale", "en_US"),
   missing_in_candidate = character(0),
   type_mismatch_cols = character(0),
   add_col_exists_steps = TRUE
@@ -43,12 +43,17 @@ setup_pointblank_agent(
 
 \item{na_equal}{Logical indicating if NA values are considered equal}
 
-\item{lang}{Language code for pointblank reports (default: "fr"). Supported values include
-"en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish), "pt" (Portuguese),
-"zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc. See pointblank documentation for full list.}
+\item{lang}{Language code for pointblank reports. Defaults to the
+\code{datadiff.lang} option if set, otherwise \code{"en"}. Set globally
+with \code{options(datadiff.lang = "fr")}. Supported values include
+"en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish),
+"pt" (Portuguese), "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc.
+See pointblank documentation for full list.}
 
-\item{locale}{Locale code for number and date formatting (default: "fr_FR"). Examples: "en_US",
-"en_GB", "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".}
+\item{locale}{Locale code for number and date formatting. Defaults to the
+\code{datadiff.locale} option if set, otherwise \code{"en_US"}. Set globally
+with \code{options(datadiff.locale = "fr_FR")}. Examples: "en_GB", "fr_FR",
+"de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".}
 
 \item{missing_in_candidate}{Character vector of columns missing in candidate dataset}
 
