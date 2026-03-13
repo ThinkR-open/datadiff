@@ -1,3 +1,32 @@
+# datadiff 0.4.4
+
+## CRAN submission preparation
+
+* Replace `\(x)` lambda syntax with `function(x)` throughout to maintain
+  compatibility with the declared `R (>= 4.0.0)` dependency (`\()` requires
+  R >= 4.1.0).
+
+* All test files: replace hardcoded YAML file paths with `tempfile()` +
+  `on.exit(unlink())` to comply with the CRAN policy prohibiting tests from
+  writing outside `tempdir()`.
+
+* `compare_datasets_from_yaml()`: change default language from `"fr"` /
+  `"fr_FR"` to `"en"` / `"en_US"` for international use.
+
+* `compare_datasets_from_yaml()`: the `error_msg_no_key` parameter is now
+  used in the message emitted when row counts differ without keys (was
+  previously a dead parameter).
+
+* `write_rules_template()`: fix `@return` documentation (`invisible(path)`,
+  not `invisible(NULL)`); fix default label prefix from `"comparaison"` to
+  `"comparison"`; fix `@param` documentation for `warn_at` and `stop_at`
+  (actual default is `1e-14`, not `0.01`).
+
+* `%||%` is no longer exported to avoid namespace conflicts with `rlang`.
+
+* `DESCRIPTION`: add `URL` and `BugReports` fields; add
+  `Config/testthat/edition: 3`.
+
 # datadiff 0.4.3
 
 ## Bug fixes

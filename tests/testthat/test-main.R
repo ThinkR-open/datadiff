@@ -5,21 +5,21 @@ test_that("write_rules_template creates valid YAML", {
     category = c("A", "B", "C")
   )
 
+  template_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(template_path), add = TRUE)
+
   # Test that function runs without error
-  expect_no_error(object = write_rules_template(df, key = "id", path = "test_template.yaml"))
+  expect_no_error(object = write_rules_template(df, key = "id", path = template_path))
 
   # Test that file was created
-  expect_true(object = file.exists("test_template.yaml"))
+  expect_true(object = file.exists(template_path))
 
   # Test that we can read the rules back
-  rules <- read_rules("test_template.yaml")
+  rules <- read_rules(template_path)
   expect_equal(object = rules$version, expected = 1)
   expect_true(object = is.list(rules$by_type))
   expect_true(object = is.list(rules$by_name))
   expect_equal(object = rules$defaults$keys, expected = "id")  # Check that key is stored
-
-  # Clean up
-  unlink("test_template.yaml")
 })
 
 test_that("write_rules_template validates key parameter", {
@@ -43,20 +43,21 @@ test_that("write_rules_template validates key parameter", {
 })
 
 test_that("read_rules validates YAML structure", {
+  valid_path <- tempfile(fileext = ".yaml")
+  invalid_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(c(valid_path, invalid_path)), add = TRUE)
+
   # Valid rules
   valid_rules <- list(version = 1, defaults = list(), by_type = list(), by_name = list())
   yaml_content <- yaml::as.yaml(x = valid_rules)
-  writeLines(text = yaml_content, con = "valid_test.yaml")
+  writeLines(text = yaml_content, con = valid_path)
 
-  expect_no_error(object = read_rules("valid_test.yaml"))
+  expect_no_error(object = read_rules(valid_path))
 
   # Invalid version
   invalid_rules <- list(version = 2, defaults = list(), by_type = list(), by_name = list())
   yaml_content <- yaml::as.yaml(x = invalid_rules)
-  writeLines(text = yaml_content, con = "invalid_test.yaml")
+  writeLines(text = yaml_content, con = invalid_path)
 
-  expect_error(object = read_rules("invalid_test.yaml"))
-
-  # Clean up
-  unlink(x = c("valid_test.yaml", "invalid_test.yaml"))
+  expect_error(object = read_rules(invalid_path))
 })

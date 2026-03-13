@@ -808,5 +808,5 @@ test_that("message is shown for positional comparison when row counts differ", {
     ),
     error = function(e) NULL
   )
-  expect_match(msg, "Row counts differ")
+  expect_match(msg, "Without keys")
 })

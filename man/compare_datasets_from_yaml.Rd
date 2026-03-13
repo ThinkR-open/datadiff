@@ -14,8 +14,8 @@ compare_datasets_from_yaml(
   ref_suffix = "__reference",
   label = NULL,
   error_msg_no_key = "Without keys, both tables must have the same number of rows.",
-  lang = "fr",
-  locale = "fr_FR",
+  lang = "en",
+  locale = "en_US",
   extract_failed = TRUE,
   get_first_n = NULL,
   sample_n = NULL,
@@ -34,9 +34,9 @@ compare_datasets_from_yaml(
 \item{path}{Path to YAML file containing validation rules. If NULL, default rules are
 generated automatically based on the reference dataset structure.}
 
-\item{warn_at}{Warning threshold as fraction of failing tests (default: 0.01)}
+\item{warn_at}{Warning threshold as fraction of failing tests (default: 1e-14)}
 
-\item{stop_at}{Stop threshold as fraction of failing tests (default: 0.01)}
+\item{stop_at}{Stop threshold as fraction of failing tests (default: 1e-14)}
 
 \item{ref_suffix}{Suffix for reference columns in comparison dataframe (default: "__reference")}
 

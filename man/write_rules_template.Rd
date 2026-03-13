@@ -67,7 +67,7 @@ comparison. If NULL, comparison is positional (row by row).}
 \item{logical_equal_mode}{Default comparison mode for logical columns}
 }
 \value{
-Invisible NULL (writes file to disk)
+The path to the created YAML file, invisibly.
 }
 \description{
 Generates a comprehensive YAML configuration file with default validation rules
