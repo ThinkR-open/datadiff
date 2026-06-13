@@ -4,22 +4,21 @@ test_that("write_rules_template creates valid YAML", {
     amount = c(100.0, 200.0, 300.0),
     category = c("A", "B", "C")
   )
+  temp_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(temp_path), add = TRUE)
 
   # Test that function runs without error
-  expect_no_error(object = write_rules_template(df, key = "id", path = "test_template.yaml"))
+  expect_no_error(object = write_rules_template(df, key = "id", path = temp_path))
 
   # Test that file was created
-  expect_true(object = file.exists("test_template.yaml"))
+  expect_true(object = file.exists(temp_path))
 
   # Test that we can read the rules back
-  rules <- read_rules("test_template.yaml")
+  rules <- read_rules(temp_path)
   expect_equal(object = rules$version, expected = 1)
   expect_true(object = is.list(rules$by_type))
   expect_true(object = is.list(rules$by_name))
   expect_equal(object = rules$defaults$keys, expected = "id")  # Check that key is stored
-
-  # Clean up
-  unlink("test_template.yaml")
 })
 
 test_that("write_rules_template validates key parameter", {
