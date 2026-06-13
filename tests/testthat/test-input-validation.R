@@ -22,12 +22,12 @@ test_that("write_rules_template handles invalid ignore_columns_default", {
   df <- data.frame(id = 1:2, value = 1:2, temp = c("a", "b"))
 
   # Test NULL (should work, treated as empty - YAML may not write empty lists)
-  template_path <- "test_ignore_null.yaml"
+  template_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(template_path), add = TRUE)
   write_rules_template(df, key = "id", ignore_columns_default = NULL, path = template_path)
   rules <- read_rules(template_path)
   # When ignore_columns is empty list, YAML behavior may vary
   expect_true(is.null(rules$defaults$ignore_columns) || identical(rules$defaults$ignore_columns, list()))
-  unlink(template_path)
 
   # Test with non-existent column (YAML accepts it, validation happens later)
   template_path <- "test_ignore_invalid.yaml"
