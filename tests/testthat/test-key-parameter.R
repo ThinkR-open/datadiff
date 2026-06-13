@@ -306,7 +306,7 @@ test_that("warning truncates to 3 examples when more than 3 duplicate key values
 
   w <- tryCatch(
     compare_datasets_from_yaml(ref, cand, key = "id"),
-    warning = \(w) conditionMessage(w)
+    warning = function(w) conditionMessage(w)
   )
   expect_match(w, "\\.\\.\\.")
 })
