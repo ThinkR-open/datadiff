@@ -93,7 +93,7 @@ by_type:
 
   expect_false(res$all_passed)
   expect_null(res$agent)
-  expect_null(res$response)
+  expect_null(res$reponse)
   # Clean up
   unlink('test_key_validation.yaml')
 })
