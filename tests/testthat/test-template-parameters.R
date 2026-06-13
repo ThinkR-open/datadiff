@@ -87,8 +87,6 @@ test_that("write_rules_template ignore_columns parameter works", {
 
   # Clean up
   unlink(template_path)
-  # Clean up
-  unlink(template_path)
 })
 
 test_that("write_rules_template ignore_columns_default parameter works", {
