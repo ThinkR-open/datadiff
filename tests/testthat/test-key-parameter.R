@@ -132,7 +132,6 @@ by_type:
 
   # Clean up
   unlink('test_key_precedence.yaml')
-  unlink('test_key_precedence.yaml')
 })
 
 # --- Duplicate key detection tests ---
