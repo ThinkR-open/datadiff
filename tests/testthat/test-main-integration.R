@@ -15,18 +15,18 @@ by_type:
     abs: 0.01
 '
 
-  writeLines(yaml_content, 'test_ignore_integration.yaml')
+  yaml_path <- tempfile("test_ignore_integration_", fileext = ".yaml")
+  writeLines(yaml_content, yaml_path)
+  on.exit(unlink(yaml_path), add = TRUE)
 
   # Test the full integration
-  result <- compare_datasets_from_yaml(ref, cand, path = 'test_ignore_integration.yaml')
+  result <- compare_datasets_from_yaml(ref, cand, path = yaml_path)
 
   # Should not report missing/extra columns
   expect_equal(length(result$missing_in_candidate), 0)
 
   expect_equal(length(result$extra_in_candidate), 0)
 
-  # Clean up
-  unlink('test_ignore_integration.yaml')
 })
 
 test_that("compare_datasets_from_yaml works with keys", {
@@ -43,16 +43,16 @@ by_type:
     abs: 0.5
 '
 
-  writeLines(yaml_content, 'test_key_integration.yaml')
+  yaml_path <- tempfile("test_key_integration_", fileext = ".yaml")
+  writeLines(yaml_content, yaml_path)
+  on.exit(unlink(yaml_path), add = TRUE)
 
-  result <- compare_datasets_from_yaml(ref, cand, key = "id", path = 'test_key_integration.yaml')
+  result <- compare_datasets_from_yaml(ref, cand, key = "id", path = yaml_path)
 
   # Should have a valid result
   expect_type(result, "list")
   expect_s3_class(result$agent, "ptblank_agent")
 
-  # Clean up
-  unlink('test_key_integration.yaml')
 })
 
 test_that("compare_datasets_from_yaml handles row validation", {
@@ -71,13 +71,12 @@ by_type:
     abs: 0.01
 '
 
-  writeLines(yaml_content, 'test_row_validation.yaml')
+  yaml_path <- tempfile("test_row_validation_", fileext = ".yaml")
+  writeLines(yaml_content, yaml_path)
+  on.exit(unlink(yaml_path), add = TRUE)
 
   # Should not error with matching row counts
-  expect_no_error(compare_datasets_from_yaml(ref, cand, path = 'test_row_validation.yaml'))
-
-  # Clean up
-  unlink('test_row_validation.yaml')
+  expect_no_error(compare_datasets_from_yaml(ref, cand, path = yaml_path))
 })
 
 test_that("column-specific rules override type rules for numeric and character columns", {
@@ -119,9 +118,11 @@ by_name:
     case_insensitive: true
 '
 
-  writeLines(yaml_content, 'test_rule_priority.yaml')
+  yaml_path <- tempfile("test_rule_priority_", fileext = ".yaml")
+  writeLines(yaml_content, yaml_path)
+  on.exit(unlink(yaml_path), add = TRUE)
 
-  result <- compare_datasets_from_yaml(ref, cand, path = 'test_rule_priority.yaml')
+  result <- compare_datasets_from_yaml(ref, cand, path = yaml_path)
 
   # Check that applied_rules reflect the priority: column-specific override type rules
   applied <- result$applied_rules
@@ -142,8 +143,6 @@ by_name:
   # The comparison should pass since differences are within the applied rules
   expect_true(result$all_passed)
 
-  # Clean up
-  unlink('test_rule_priority.yaml')
 })
 
 
@@ -164,18 +163,18 @@ by_type:
     abs: 0.5
 '
 
-  writeLines(yaml_content, 'test_diff_rows_with_keys.yaml')
+  yaml_path <- tempfile("test_diff_rows_with_keys_", fileext = ".yaml")
+  writeLines(yaml_content, yaml_path)
+  on.exit(unlink(yaml_path), add = TRUE)
 
   # Should not error even with different row counts when keys are provided
-  expect_no_error(result <- compare_datasets_from_yaml(ref, cand, key = "id", path = 'test_diff_rows_with_keys.yaml'))
+  expect_no_error(result <- compare_datasets_from_yaml(ref, cand, key = "id", path = yaml_path))
 
   # Should have a valid result structure
   expect_type(result, "list")
   expect_s3_class(result$agent, "ptblank_agent")
   expect_false(result$all_passed)  # Should fail because of extra row in candidate
 
-  # Clean up
-  unlink('test_diff_rows_with_keys.yaml')
 })
 
 test_that("compare_datasets_from_yaml uses French language by default", {
@@ -223,17 +222,17 @@ by_type:
     abs: 0.5
 '
 
-  writeLines(yaml_content, 'test_lang.yaml')
+  yaml_path <- tempfile("test_lang_", fileext = ".yaml")
+  writeLines(yaml_content, yaml_path)
+  on.exit(unlink(yaml_path), add = TRUE)
 
   # Test with English language
-  result <- compare_datasets_from_yaml(ref, cand, path = 'test_lang.yaml', lang = "en", locale = "en_GB")
+  result <- compare_datasets_from_yaml(ref, cand, path = yaml_path, lang = "en", locale = "en_GB")
 
   expect_equal(result$agent$lang, "en")
   expect_equal(result$agent$locale, "en_GB")
   expect_true(result$all_passed)
 
-  # Clean up
-  unlink('test_lang.yaml')
 })
 
 test_that("compare_datasets_from_yaml accepts extract_failed parameter", {
@@ -266,16 +265,16 @@ by_type:
     abs: 0.001
 '
 
-  writeLines(yaml_content, 'test_get_first_n.yaml')
+  yaml_path <- tempfile("test_get_first_n_", fileext = ".yaml")
+  writeLines(yaml_content, yaml_path)
+  on.exit(unlink(yaml_path), add = TRUE)
 
   # Test with get_first_n = 5 (limit extracted failures)
-  result <- compare_datasets_from_yaml(ref, cand, path = 'test_get_first_n.yaml', get_first_n = 5)
+  result <- compare_datasets_from_yaml(ref, cand, path = yaml_path, get_first_n = 5)
 
   expect_type(result, "list")
   expect_false(result$all_passed)  # Should fail because values differ
 
-  # Clean up
-  unlink('test_get_first_n.yaml')
 })
 
 test_that("compare_datasets_from_yaml accepts sample_n parameter", {
