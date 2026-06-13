@@ -26,10 +26,10 @@ test_that("write_rules_template validates key parameter", {
 
   # Test missing key parameter (now allowed - creates rules without key)
   temp_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(temp_path), add = TRUE)
   expect_no_error(write_rules_template(df, path = temp_path))
   rules <- read_rules(temp_path)
   expect_null(rules$defaults$keys)
-  unlink(temp_path)
 
   # Test empty key
   expect_error(write_rules_template(df, key = character(0)), "must be a non-empty character vector")
