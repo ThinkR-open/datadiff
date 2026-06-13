@@ -24,7 +24,7 @@
 #' @param date_equal_mode Default comparison mode for date columns
 #' @param datetime_equal_mode Default comparison mode for datetime columns
 #' @param logical_equal_mode Default comparison mode for logical columns
-#' @return Invisible NULL (writes file to disk)
+#' @return The \code{path} to the written YAML file, returned invisibly.
 #' @importFrom yaml write_yaml
 #' @importFrom stats setNames
 #' @importFrom dplyr collect
@@ -122,15 +122,20 @@ read_rules <- function(path) {
 #' @param key Optional character vector of column names to use as join keys for ordered comparison
 #' @param path Path to YAML file containing validation rules. If NULL, default rules are
 #'   generated automatically based on the reference dataset structure.
-#' @param warn_at Warning threshold as fraction of failing tests (default: 0.01)
-#' @param stop_at Stop threshold as fraction of failing tests (default: 0.01)
+#' @param warn_at Warning threshold as fraction of failing tests (default: 1e-14)
+#' @param stop_at Stop threshold as fraction of failing tests (default: 1e-14)
 #' @param ref_suffix Suffix for reference columns in comparison dataframe (default: "__reference")
 #' @param label Descriptive label for the validation report
 #' @param error_msg_no_key Error message when datasets have different row counts without keys
-#' @param lang Language code for pointblank reports (default: "fr"). Supported values include
-#'   "en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish), "pt" (Portuguese),
-#'   "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc. See pointblank documentation for full list.
-#' @param locale Locale code for number and date formatting (default: "fr_FR"). Examples: "en_US",
+#' @param lang Language code for pointblank reports. Defaults to the
+#'   \code{datadiff.lang} option if set, otherwise \code{"fr"}. Override globally
+#'   with \code{options(datadiff.lang = "en")}. Supported values include
+#'   "en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish),
+#'   "pt" (Portuguese), "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc.
+#'   See pointblank documentation for full list.
+#' @param locale Locale code for number and date formatting. Defaults to the
+#'   \code{datadiff.locale} option if set, otherwise \code{"fr_FR"}. Override
+#'   globally with \code{options(datadiff.locale = "en_US")}. Examples: "en_US",
 #'   "en_GB", "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".
 #' @param extract_failed Logical indicating whether to collect rows that failed validation
 #'   (default: TRUE). Set to FALSE to reduce memory usage for large datasets with many errors.
@@ -183,8 +188,8 @@ compare_datasets_from_yaml <- function(data_reference,
                                        ref_suffix = "__reference",
                                        label = NULL,
                                        error_msg_no_key = "Without keys, both tables must have the same number of rows.",
-                                       lang = "fr",
-                                       locale = "fr_FR",
+                                       lang = getOption("datadiff.lang", "fr"),
+                                       locale = getOption("datadiff.locale", "fr_FR"),
                                        extract_failed = TRUE,
                                        get_first_n = NULL,
                                        sample_n = NULL,
@@ -324,9 +329,9 @@ compare_datasets_from_yaml <- function(data_reference,
         key_cols_ref <- ref_dups[, key, drop = FALSE]
 
         examples_ref <- if (n_dup_keys_ref <= 3) {
-          apply(key_cols_ref, 1, \(r) paste(key, "=", r, collapse = ", "))
+          apply(key_cols_ref, 1, function(r) { paste(key, "=", r, collapse = ", ") })
         } else {
-          c(apply(key_cols_ref[1:3, , drop = FALSE], 1, \(r) paste(key, "=", r, collapse = ", ")), "...")
+          c(apply(key_cols_ref[1:3, , drop = FALSE], 1, function(r) { paste(key, "=", r, collapse = ", ") }), "...")
         }
 
         warning_parts <- c(warning_parts, sprintf(
@@ -341,9 +346,9 @@ compare_datasets_from_yaml <- function(data_reference,
         key_cols_cand <- cand_dups[, key, drop = FALSE]
 
         examples_cand <- if (n_dup_keys_cand <= 3) {
-          apply(key_cols_cand, 1, \(r) paste(key, "=", r, collapse = ", "))
+          apply(key_cols_cand, 1, function(r) { paste(key, "=", r, collapse = ", ") })
         } else {
-          c(apply(key_cols_cand[1:3, , drop = FALSE], 1, \(r) paste(key, "=", r, collapse = ", ")), "...")
+          c(apply(key_cols_cand[1:3, , drop = FALSE], 1, function(r) { paste(key, "=", r, collapse = ", ") }), "...")
         }
 
         warning_parts <- c(warning_parts, sprintf(
@@ -439,7 +444,7 @@ compare_datasets_from_yaml <- function(data_reference,
     }
     # Use pre-computed counts from validate_row_counts (avoids a second nrow() on lazy)
     if (row_validation_info$ref_count != row_validation_info$cand_count) {
-      message("Warning: Row counts differ without keys - validation will fail")
+      message(error_msg_no_key)
     }
     cmp <- data_candidate_p
     for (c in common_cols) {

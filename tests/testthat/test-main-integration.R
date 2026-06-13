@@ -188,6 +188,19 @@ test_that("compare_datasets_from_yaml uses French language by default", {
   expect_equal(result$agent$locale, "fr_FR")
 })
 
+test_that("compare_datasets_from_yaml honours datadiff.lang / datadiff.locale options", {
+  ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
+  cand <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
+
+  old <- options(datadiff.lang = "de", datadiff.locale = "de_DE")
+  on.exit(options(old), add = TRUE)
+
+  result <- compare_datasets_from_yaml(ref, cand, key = "id")
+
+  expect_equal(result$agent$lang, "de")
+  expect_equal(result$agent$locale, "de_DE")
+})
+
 test_that("compare_datasets_from_yaml accepts custom language parameters", {
   ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
   cand <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))

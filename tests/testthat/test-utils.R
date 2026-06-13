@@ -5,6 +5,10 @@ test_that("%||% operator works correctly", {
   expect_equal(object = NULL %||% NULL, expected = NULL)
 })
 
+test_that("%||% is exported from the package namespace", {
+  expect_true("%||%" %in% getNamespaceExports("datadiff"))
+})
+
 test_that("normalize_text handles basic cases", {
   # Test case insensitive
   expect_equal(object = normalize_text(c("HELLO", "world"), case_insensitive = TRUE), expected = c("hello", "world"))

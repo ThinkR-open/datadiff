@@ -90,6 +90,13 @@ failing_columns <- function(tbl, tol_cols, eq_cols, ref_suffix, na_equal) {
 #' @return A configured (not yet interrogated) \code{ptblank_agent}.
 #' @keywords internal
 build_pass_agent <- function(tbl, label, warn_at, stop_at, lang, locale) {
+  # The trivially-passing col_exists step needs at least one column to target.
+  # Degenerate inputs (no tolerance, equality or row-count columns to validate)
+  # produce a 0-column table, on which tbl[, 1] would error; synthesise a dummy
+  # column so create_agent()/col_exists() stay well-defined and still pass.
+  if (ncol(tbl) == 0) {
+    tbl <- data.frame(.datadiff_pass = TRUE)
+  }
   slim <- tbl[, 1, drop = FALSE]
   agent <- pointblank::create_agent(
     tbl = slim, label = label,

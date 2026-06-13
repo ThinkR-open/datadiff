@@ -28,7 +28,9 @@ is_arrow <- function(x) {
 # spilling).  Falls back to arrow::to_duckdb() for non-file-backed datasets
 # or non-Parquet formats.
 arrow_dataset_to_duckdb <- function(ds, con, tbl_name) {
-  files <- tryCatch(ds$files, error = \(e) NULL)
+  files <- tryCatch(ds$files, error = function(e) {
+    NULL
+  })
   if (!is.null(files) && length(files) > 0 &&
       all(grepl("\\.parquet$", files, ignore.case = TRUE))) {
     paths_sql <- paste0("'", gsub("\\\\", "/", files), "'", collapse = ", ")
