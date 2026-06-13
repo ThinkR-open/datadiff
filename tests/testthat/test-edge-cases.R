@@ -796,17 +796,29 @@ test_that("message is shown for positional comparison when row counts differ", {
   cand <- data.frame(value = 1:3)
 
   # No key -> positional comparison; row counts differ -> message emitted then
-  # R errors on column assignment. Capture the message before the error.
-  msg <- NULL
-  tryCatch(
-    withCallingHandlers(
-      suppressWarnings(compare_datasets_from_yaml(ref, cand)),
-      message = function(m) {
-        msg <<- conditionMessage(m)
-        invokeRestart("muffleMessage")
-      }
-    ),
-    error = function(e) NULL
+  # R errors on column assignment. Capture every message before the error.
+  capture_messages <- function(expr) {
+    msgs <- character(0)
+    tryCatch(
+      withCallingHandlers(
+        suppressWarnings(expr),
+        message = function(m) {
+          msgs <<- c(msgs, conditionMessage(m))
+          invokeRestart("muffleMessage")
+        }
+      ),
+      error = function(e) NULL
+    )
+    msgs
+  }
+
+  # Default: the row-count message uses error_msg_no_key's default text.
+  msgs <- capture_messages(compare_datasets_from_yaml(ref, cand))
+  expect_true(any(grepl("same number of rows", msgs)))
+
+  # A custom error_msg_no_key must actually reach the emitted message.
+  msgs_custom <- capture_messages(
+    compare_datasets_from_yaml(ref, cand, error_msg_no_key = "CUSTOM_NO_KEY_MSG")
   )
-  expect_match(msg, "Without keys")
+  expect_true(any(grepl("CUSTOM_NO_KEY_MSG", msgs_custom)))
 })

@@ -110,8 +110,8 @@ by_type:
     abs: 0.01
 '
 
-  yaml_path <- tempfile(fileext = ".yaml")
-  yaml_fail_path <- tempfile(fileext = ".yaml")
+  yaml_path <- tempfile("test_integration_row_val_", fileext = ".yaml")
+  yaml_fail_path <- tempfile("test_integration_row_val_fail_", fileext = ".yaml")
   on.exit(unlink(c(yaml_path, yaml_fail_path)), add = TRUE)
 
   writeLines(yaml_content, yaml_path)
