@@ -110,12 +110,8 @@ by_type:
     abs: 0.01
 '
 
-  yaml_path <- tempfile(fileext = ".yaml")
-  yaml_fail_path <- tempfile(fileext = ".yaml")
-  on.exit(unlink(c(yaml_path, yaml_fail_path)), add = TRUE)
-
-  writeLines(yaml_content, yaml_path)
-  expect_no_error(compare_datasets_from_yaml(ref, cand, path = yaml_path))
+  writeLines(yaml_content, 'test_integration_row_val.yaml')
+  expect_no_error(compare_datasets_from_yaml(ref, cand, path = 'test_integration_row_val.yaml'))
 
   # Test with check_count = TRUE and wrong count
   yaml_fail <- '
@@ -131,7 +127,10 @@ by_type:
     abs: 0.01
 '
 
-  writeLines(yaml_fail, yaml_fail_path)
-  result_fail <- compare_datasets_from_yaml(ref, cand, path = yaml_fail_path)
+  writeLines(yaml_fail, 'test_integration_row_val_fail.yaml')
+  result_fail <- compare_datasets_from_yaml(ref, cand, path = 'test_integration_row_val_fail.yaml')
   expect_false(result_fail$all_passed)
+
+  # Clean up
+  unlink(c('test_integration_row_val.yaml', 'test_integration_row_val_fail.yaml'))
 })

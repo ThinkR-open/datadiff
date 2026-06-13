@@ -1,3 +1,55 @@
+#' Per-column tolerance kernel
+#'
+#' Computes, for one candidate/reference numeric vector pair, the absolute
+#' difference, the tolerance threshold, and the boolean within-tolerance
+#' result. Factored out of \code{add_tolerance_columns} so the comparison logic
+#' lives in a single tested place and can be applied column-by-column: this
+#' keeps the working set cache-resident (unlike a whole-block matrix kernel,
+#' which becomes memory-bandwidth bound on tall inputs).
+#'
+#' Semantics: same-sign infinities compare equal (zero difference); a
+#' single-sided \code{NA}/\code{NaN}/\code{Inf} always fails; \code{NA} or
+#' \code{NaN} on both sides follows \code{na_equal}; and a few ULPs of the
+#' reference magnitude are added to the threshold to absorb IEEE 754 rounding in
+#' the subtraction.
+#'
+#' @param cand_vals Numeric vector of candidate values.
+#' @param ref_vals Numeric vector of reference values, same length as
+#'   \code{cand_vals}.
+#' @param abs_tol Scalar absolute tolerance.
+#' @param rel_tol Scalar relative tolerance.
+#' @param na_equal Logical; whether NA/NaN on both sides count as equal.
+#' @return A list with numeric vectors \code{absdiff}, \code{thresh} and the
+#'   logical vector \code{ok}.
+#' @keywords internal
+compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equal) {
+  both_na  <- is.na(cand_vals) & is.na(ref_vals)
+  one_na   <- is.na(cand_vals) | is.na(ref_vals)
+  both_inf <- is.infinite(cand_vals) & is.infinite(ref_vals)
+  same_inf <- both_inf & (sign(cand_vals) == sign(ref_vals))
+  both_nan <- is.nan(cand_vals) & is.nan(ref_vals)
+  one_nan  <- is.nan(cand_vals) | is.nan(ref_vals)
+  one_inf  <- is.infinite(cand_vals) | is.infinite(ref_vals)
+
+  absdiff <- abs(cand_vals - ref_vals)
+  absdiff[same_inf] <- 0
+
+  thresh <- abs_tol + rel_tol * abs(ref_vals)
+
+  fp_correction <- 8 * .Machine$double.eps * abs(ref_vals)
+  fp_correction[!is.finite(fp_correction)] <- 0
+  within_tol <- absdiff <= thresh + fp_correction
+
+  if (na_equal) {
+    ok <- both_na | both_nan | same_inf |
+      (!one_na & !one_nan & !one_inf & within_tol)
+  } else {
+    ok <- same_inf | (!one_na & !one_nan & !one_inf & within_tol)
+  }
+
+  list(absdiff = absdiff, thresh = thresh, ok = ok)
+}
+
 #' Add tolerance columns for numeric comparisons
 #'
 #' Creates additional columns in the comparison dataframe to handle numeric tolerance validation.
@@ -68,49 +120,38 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
     return(cmp)
   }
 
-  # Local data.frame path: full Inf/NaN handling preserved
-  for (c in tol_cols) {
-    reference_c <- paste0(c, ref_suffix)
-    abs_tol <- col_rules[[c]][["abs"]] %||% 0
-    rel_tol <- col_rules[[c]][["rel"]] %||% 0
-
-    cand_vals <- cmp[[c]]
-    ref_vals <- cmp[[reference_c]]
-
-    # Detect special values: Inf, -Inf, NaN
-    both_na <- is.na(cand_vals) & is.na(ref_vals)
-    one_na <- is.na(cand_vals) | is.na(ref_vals)
-    both_inf <- is.infinite(cand_vals) & is.infinite(ref_vals)
-    same_inf <- both_inf & (sign(cand_vals) == sign(ref_vals))
-    both_nan <- is.nan(cand_vals) & is.nan(ref_vals)
-    one_nan <- is.nan(cand_vals) | is.nan(ref_vals)
-    one_inf <- is.infinite(cand_vals) | is.infinite(ref_vals)
-
-    # Calculate absolute difference (handle Inf - Inf = NaN)
-    absdiff <- abs(cand_vals - ref_vals)
-    # For identical Inf values (same sign), difference is 0
-    absdiff[same_inf] <- 0
-
-    cmp[[paste0(c, "__absdiff")]] <- absdiff
-    cmp[[paste0(c, "__thresh")]] <- abs_tol + rel_tol * abs(ref_vals)
-
-    ok_col <- paste0(c, "__ok")
-
-    # Base comparison: within tolerance.
-    # A few ULPs of the reference magnitude are added to absorb IEEE 754
-    # rounding errors in the subtraction (e.g. 100.01 - 100.00 gives
-    # 0.0100000000000051 > 0.01 in double precision). The correction is
-    # proportional to |ref|, zeroed out for Inf/NaN inputs.
-    fp_correction <- 8 * .Machine$double.eps * abs(ref_vals)
-    fp_correction[!is.finite(fp_correction)] <- 0
-    within_tol <- absdiff <= cmp[[paste0(c, "__thresh")]] + fp_correction
-
-    if (na_equal) {
-      cmp[[ok_col]] <- both_na | both_nan | same_inf |
-        (!one_na & !one_nan & !one_inf & within_tol)
-    } else {
-      cmp[[ok_col]] <- same_inf | (!one_na & !one_nan & !one_inf & within_tol)
-    }
+  # Local data.frame path: full Inf/NaN handling preserved.
+  # Compute the __absdiff/__thresh/__ok columns per column (cache-friendly
+  # vector ops) into pre-allocated lists, then bind them all in a single
+  # operation. The original code grew the (already wide) data.frame one column
+  # at a time, which copies the whole frame on each assignment and is quadratic
+  # in the column count; the single bind removes that without materialising any
+  # large intermediate matrices that would be memory-bound on tall inputs.
+  if (length(tol_cols) == 0) {
+    return(cmp)
   }
-  cmp
+
+  m <- length(tol_cols)
+  absdiff_cols <- vector("list", m)
+  thresh_cols  <- vector("list", m)
+  ok_cols      <- vector("list", m)
+
+  for (i in seq_len(m)) {
+    c <- tol_cols[i]
+    blocks <- compute_tolerance_col(
+      cand_vals = cmp[[c]], ref_vals = cmp[[paste0(c, ref_suffix)]],
+      abs_tol = col_rules[[c]][["abs"]] %||% 0,
+      rel_tol = col_rules[[c]][["rel"]] %||% 0,
+      na_equal = na_equal
+    )
+    absdiff_cols[[i]] <- blocks$absdiff
+    thresh_cols[[i]]  <- blocks$thresh
+    ok_cols[[i]]      <- blocks$ok
+  }
+
+  names(absdiff_cols) <- paste0(tol_cols, "__absdiff")
+  names(thresh_cols)  <- paste0(tol_cols, "__thresh")
+  names(ok_cols)      <- paste0(tol_cols, "__ok")
+
+  cbind(cmp, list2DF(c(absdiff_cols, thresh_cols, ok_cols)))
 }

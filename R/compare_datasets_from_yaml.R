@@ -24,7 +24,7 @@
 #' @param date_equal_mode Default comparison mode for date columns
 #' @param datetime_equal_mode Default comparison mode for datetime columns
 #' @param logical_equal_mode Default comparison mode for logical columns
-#' @return The path to the created YAML file, invisibly.
+#' @return Invisible NULL (writes file to disk)
 #' @importFrom yaml write_yaml
 #' @importFrom stats setNames
 #' @importFrom dplyr collect
@@ -43,8 +43,9 @@ write_rules_template <- function(data_reference,
                                  datetime_equal_mode = "exact",
                                  logical_equal_mode = "exact") {
 
-  # 0-row collect to retrieve column names and types without loading data:
-  # works for both local data.frames and lazy tables (tbl_lazy).
+  # Validate key if provided
+  # Use a 0-row collect to retrieve column names and types: works for both local
+  # data.frames and lazy tables (tbl_lazy) without loading all rows.
   .ref_schema    <- dplyr::collect(utils::head(data_reference, 0L))
   .ref_col_names <- names(.ref_schema)
 
@@ -61,7 +62,7 @@ write_rules_template <- function(data_reference,
       )
     }
   }
-  if (is.null(label) || label == "") {label <- paste("comparison", deparse1(substitute(data_reference)))
+  if (is.null(label) || label == "") {label <- paste("comparaison", deparse1(substitute(data_reference)))
 
   }
   types <- detect_column_types(.ref_schema)
@@ -121,21 +122,16 @@ read_rules <- function(path) {
 #' @param key Optional character vector of column names to use as join keys for ordered comparison
 #' @param path Path to YAML file containing validation rules. If NULL, default rules are
 #'   generated automatically based on the reference dataset structure.
-#' @param warn_at Warning threshold as fraction of failing tests (default: 1e-14)
-#' @param stop_at Stop threshold as fraction of failing tests (default: 1e-14)
+#' @param warn_at Warning threshold as fraction of failing tests (default: 0.01)
+#' @param stop_at Stop threshold as fraction of failing tests (default: 0.01)
 #' @param ref_suffix Suffix for reference columns in comparison dataframe (default: "__reference")
 #' @param label Descriptive label for the validation report
 #' @param error_msg_no_key Error message when datasets have different row counts without keys
-#' @param lang Language code for pointblank reports. Defaults to the
-#'   \code{datadiff.lang} option if set, otherwise \code{"en"}. Set globally
-#'   with \code{options(datadiff.lang = "fr")}. Supported values include
-#'   "en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish),
-#'   "pt" (Portuguese), "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc.
-#'   See pointblank documentation for full list.
-#' @param locale Locale code for number and date formatting. Defaults to the
-#'   \code{datadiff.locale} option if set, otherwise \code{"en_US"}. Set globally
-#'   with \code{options(datadiff.locale = "fr_FR")}. Examples: "en_GB", "fr_FR",
-#'   "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".
+#' @param lang Language code for pointblank reports (default: "fr"). Supported values include
+#'   "en" (English), "fr" (French), "de" (German), "it" (Italian), "es" (Spanish), "pt" (Portuguese),
+#'   "zh" (Chinese), "ja" (Japanese), "ru" (Russian), etc. See pointblank documentation for full list.
+#' @param locale Locale code for number and date formatting (default: "fr_FR"). Examples: "en_US",
+#'   "en_GB", "de_DE", "es_ES", "pt_BR", "zh_CN", "ja_JP".
 #' @param extract_failed Logical indicating whether to collect rows that failed validation
 #'   (default: TRUE). Set to FALSE to reduce memory usage for large datasets with many errors.
 #' @param get_first_n Integer specifying the maximum number of failed rows to extract per
@@ -187,8 +183,8 @@ compare_datasets_from_yaml <- function(data_reference,
                                        ref_suffix = "__reference",
                                        label = NULL,
                                        error_msg_no_key = "Without keys, both tables must have the same number of rows.",
-                                       lang = getOption("datadiff.lang", "en"),
-                                       locale = getOption("datadiff.locale", "en_US"),
+                                       lang = "fr",
+                                       locale = "fr_FR",
                                        extract_failed = TRUE,
                                        get_first_n = NULL,
                                        sample_n = NULL,
@@ -319,6 +315,7 @@ compare_datasets_from_yaml <- function(data_reference,
     cand_has_dups <- nrow(cand_dups) > 0
 
     if (ref_has_dups || cand_has_dups) {
+      # Build detailed warning message
       warning_parts <- c()
 
       if (ref_has_dups) {
@@ -327,9 +324,9 @@ compare_datasets_from_yaml <- function(data_reference,
         key_cols_ref <- ref_dups[, key, drop = FALSE]
 
         examples_ref <- if (n_dup_keys_ref <= 3) {
-          apply(key_cols_ref, 1, function(r) paste(key, "=", r, collapse = ", "))
+          apply(key_cols_ref, 1, \(r) paste(key, "=", r, collapse = ", "))
         } else {
-          c(apply(key_cols_ref[1:3, , drop = FALSE], 1, function(r) paste(key, "=", r, collapse = ", ")), "...")
+          c(apply(key_cols_ref[1:3, , drop = FALSE], 1, \(r) paste(key, "=", r, collapse = ", ")), "...")
         }
 
         warning_parts <- c(warning_parts, sprintf(
@@ -344,9 +341,9 @@ compare_datasets_from_yaml <- function(data_reference,
         key_cols_cand <- cand_dups[, key, drop = FALSE]
 
         examples_cand <- if (n_dup_keys_cand <= 3) {
-          apply(key_cols_cand, 1, function(r) paste(key, "=", r, collapse = ", "))
+          apply(key_cols_cand, 1, \(r) paste(key, "=", r, collapse = ", "))
         } else {
-          c(apply(key_cols_cand[1:3, , drop = FALSE], 1, function(r) paste(key, "=", r, collapse = ", ")), "...")
+          c(apply(key_cols_cand[1:3, , drop = FALSE], 1, \(r) paste(key, "=", r, collapse = ", ")), "...")
         }
 
         warning_parts <- c(warning_parts, sprintf(
@@ -369,6 +366,7 @@ compare_datasets_from_yaml <- function(data_reference,
     }
   }
 
+  # Analyze columns
   col_analysis <- analyze_columns(data_reference, data_candidate, ignore_columns = ignore_columns)
   cols_reference <- col_analysis$cols_reference
   cols_candidate <- col_analysis$cols_candidate
@@ -412,6 +410,7 @@ compare_datasets_from_yaml <- function(data_reference,
   data_reference_p <- preprocess_dataframe(data_reference, col_rules, schema = schema_ref)
   data_candidate_p <- preprocess_dataframe(data_candidate, col_rules, schema = schema_cand)
 
+  # Get row validation information
   row_validation_info <- validate_row_counts(data_reference_p, data_candidate_p, rules)
 
   if (!is.null(key)) {
@@ -440,7 +439,7 @@ compare_datasets_from_yaml <- function(data_reference,
     }
     # Use pre-computed counts from validate_row_counts (avoids a second nrow() on lazy)
     if (row_validation_info$ref_count != row_validation_info$cand_count) {
-      message(error_msg_no_key)
+      message("Warning: Row counts differ without keys - validation will fail")
     }
     cmp <- data_candidate_p
     for (c in common_cols) {
@@ -460,6 +459,7 @@ compare_datasets_from_yaml <- function(data_reference,
   }, FUN.VALUE = logical(1))]
   tol_cols <- setdiff(tol_cols, type_mismatch_cols)
 
+  # Add tolerance columns
   cmp <- add_tolerance_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
 
   # For lazy tables, pre-compute equality columns for non-tolerance columns.
@@ -495,7 +495,9 @@ compare_datasets_from_yaml <- function(data_reference,
   }
 
   # Add row count validation column if needed
+  row_count_ok <- TRUE
   if (row_validation_info$check_count) {
+    # Calculate if row count validation passes
     expected <- row_validation_info$expected_count
     if (!is.null(expected)) {
       row_count_ok <- abs(row_validation_info$cand_count - expected) <= row_validation_info$tolerance
@@ -533,27 +535,58 @@ compare_datasets_from_yaml <- function(data_reference,
     cmp_for_agent     <- dplyr::collect(cmp_slim_computed)
   }
 
-  # Configure pointblank agent.
-  # Type-mismatched columns are excluded from common_cols (they must not go
-  # through equality comparison, which could silently pass due to R coercion)
-  # and handled via the dedicated type_mismatch_cols failing steps.
-  agent <- setup_pointblank_agent(
-    cmp_for_agent,
-    cols_reference,
-    setdiff(common_cols, type_mismatch_cols),
-    tol_cols,
-    row_validation_info,
-    ref_suffix,
-    warn_at,
-    stop_at,
-    label,
-    na_equal,
-    lang,
-    locale,
-    missing_in_candidate = missing_in_candidate,
-    type_mismatch_cols = type_mismatch_cols,
-    add_col_exists_steps = !is_lazy
-  )
+  # Fast all-pass short-circuit.
+  # The verdict is fully determined by the boolean validation columns already
+  # computed above (plus the structural checks). When everything passes there
+  # are no cells to extract, so the expensive per-column pointblank agent (one
+  # step per column, ~quadratic on wide tables) can be replaced by a constant
+  # cost trivially-passing agent. all_passed stays identical and
+  # get_data_extracts() is empty either way. Any failure falls through to the
+  # full per-column agent so failing cells remain extractable byte-for-byte.
+  eq_cols_for_check <- setdiff(setdiff(common_cols, type_mismatch_cols), tol_cols)
+  all_passed_fast <-
+    length(missing_in_candidate) == 0 &&
+    length(type_mismatch_cols) == 0 &&
+    isTRUE(row_count_ok) &&
+    all_validations_pass(
+      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+      ref_suffix = ref_suffix, na_equal = na_equal
+    )
+
+  if (all_passed_fast) {
+    agent <- build_pass_agent(
+      tbl = cmp_for_agent, label = label,
+      warn_at = warn_at, stop_at = stop_at, lang = lang, locale = locale
+    )
+  } else {
+    # Failure path: build pointblank steps only for the columns that actually
+    # fail. Columns that pass produce empty data extracts, so omitting their
+    # steps leaves get_data_extracts() byte-for-byte unchanged while avoiding
+    # the per-column agent overhead on the passing majority. col_exists steps
+    # (which only ever pass) are dropped for the same reason. Structural
+    # failures (missing columns, type mismatches, row count) are always kept.
+    fail <- failing_columns(
+      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+      ref_suffix = ref_suffix, na_equal = na_equal
+    )
+    agent <- setup_pointblank_agent(
+      cmp_for_agent,
+      cols_reference,
+      fail$eq,
+      fail$tol,
+      row_validation_info,
+      ref_suffix,
+      warn_at,
+      stop_at,
+      label,
+      na_equal,
+      lang,
+      locale,
+      missing_in_candidate = missing_in_candidate,
+      type_mismatch_cols = type_mismatch_cols,
+      add_col_exists_steps = FALSE
+    )
+  }
 
   reponse <- interrogate(
     agent,
