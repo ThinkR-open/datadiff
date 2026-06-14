@@ -15,7 +15,7 @@ knitr::opts_chunk$set(
 library(datadiff)
 ```
 
-`datadiff` compares two datasets — a **reference** and a **candidate** — using
+`datadiff` compares two datasets - a **reference** and a **candidate** - using
 validation rules defined in a YAML file. It is built on top of
 [pointblank](https://github.com/rstudio/pointblank) and supports exact
 matching, tolerance-based numeric comparisons, text normalization, and row
@@ -74,7 +74,7 @@ result$all_passed
 
 ## 2. Understanding the return value
 
-`compare_datasets_from_yaml()` returns a list with six elements:
+`compare_datasets_from_yaml()` returns a list with eight elements:
 
 ```{r return-structure}
 names(result)
@@ -83,15 +83,55 @@ names(result)
 | Element | Description |
 |---------|-------------|
 | `all_passed` | `TRUE` if every validation step passed |
+| `coverage` | One row per check actually performed (see below) |
+| `summary` | Aggregate counts derived from `coverage` |
 | `agent` | The configured pointblank agent (before interrogation) |
-| `reponse` | The interrogated pointblank agent (full results) |
+| `reponse` | A `datadiff_report`: a real pointblank agent that renders the full report lazily when printed (see below) |
 | `missing_in_candidate` | Columns present in reference but absent from candidate |
 | `extra_in_candidate` | Columns present in candidate but absent from reference |
 | `applied_rules` | The effective per-column rules that were applied |
 
+### Seeing exactly what was checked
+
+`result$coverage` is the first thing to look at: it lists **every check that
+was performed**, one row per column, with its check type, the number of rows
+compared, the number of failures, and a `PASS`/`FAIL` status. It is always
+present - even when everything passes - so a green run never looks empty:
+
+```{r coverage}
+result$coverage
+```
+
+`result$summary` rolls those rows up into counts:
+
+```{r coverage-summary}
+result$summary
+```
+
+Because `coverage` is computed directly from the same boolean checks that
+decide the verdict, `result$summary$all_passed` always matches
+`result$all_passed`. To see only the problems, filter on the status:
+
+```{r coverage-fails, eval = FALSE}
+result$coverage[result$coverage$status == "FAIL", ]
+```
+
+### The full pointblank report
+
+`result$reponse` stays a genuine pointblank agent - `pointblank::all_passed()`
+and `pointblank::get_data_extracts()` work on it as usual. **Printing** it
+renders the full per-column pointblank report (HTML in interactive sessions).
+That report is built only when you display it, so a comparison itself stays
+fast even on very wide tables:
+
+```{r print-report, eval = FALSE}
+print(result$reponse)                              # renders the report on demand
+datadiff_report_html(result, file = "report.html") # ...or save it to a file
+```
+
 ### Inspecting applied rules
 
-`applied_rules` shows the exact rules used for each column — useful to verify
+`applied_rules` shows the exact rules used for each column - useful to verify
 that `by_name` overrides were applied correctly:
 
 ```{r applied-rules}
@@ -144,7 +184,7 @@ result <- compare_datasets_from_yaml(ref, cand, key = "id",
 result <- compare_datasets_from_yaml(ref, cand, key = "id",
                                      sample_frac = 0.1, sample_limit = 500)
 
-# Disable extraction entirely (fastest — only pass/fail counts are kept)
+# Disable extraction entirely (fastest - only pass/fail counts are kept)
 result <- compare_datasets_from_yaml(ref, cand, key = "id",
                                      extract_failed = FALSE)
 ```
@@ -161,13 +201,13 @@ any configuration:
 ref_quick  <- data.frame(id = 1:3, x = c(1.0, 2.0, 3.0), label = c("A", "B", "C"))
 cand_quick <- data.frame(id = 1:3, x = c(1.0, 2.0, 3.0), label = c("A", "B", "C"))
 
-# No path needed — rules are generated on the fly
+# No path needed - rules are generated on the fly
 result_quick <- compare_datasets_from_yaml(ref_quick, cand_quick, key = "id")
 result_quick$all_passed
 ```
 
 The auto-generated rules use near-exact numeric tolerance (`abs = 1e-9`) and
-exact character matching — equivalent to calling `write_rules_template()` with
+exact character matching - equivalent to calling `write_rules_template()` with
 all defaults.
 
 ---
@@ -211,7 +251,7 @@ by_type:                  # rules applied to all columns of a given type
     equal_mode: exact
 
 by_name:                  # column-specific overrides (take precedence over by_type)
-  id: []                  # no override — inherits integer rule
+  id: []                  # no override - inherits integer rule
   revenue:
     abs: 0.01             # accept differences up to 0.01
   category:
@@ -230,7 +270,7 @@ A field not listed in `by_name` keeps its `by_type` default.
 
 ### Reading rules from a file
 
-Use `read_rules()` to inspect what was actually loaded — useful for debugging
+Use `read_rules()` to inspect what was actually loaded - useful for debugging
 or building tooling on top of `datadiff`:
 
 ```{r read-rules}
@@ -287,7 +327,7 @@ write_rules_template(
 # Read, patch by_name, write back
 rules_obj <- read_rules(rules_full)
 
-rules_obj$by_name$price       <- list(abs = 0.01)           # ±0.01 for price
+rules_obj$by_name$price       <- list(abs = 0.01)           # +/-0.01 for price
 rules_obj$by_name$description <- list(case_insensitive = TRUE, trim = TRUE)
 
 yaml::write_yaml(rules_obj, rules_full)
@@ -313,8 +353,8 @@ result_full$applied_rules$quantity
 For every numeric column, the comparison uses a single combined threshold:
 
 ```
-threshold = abs + rel × |reference_value|
-PASS  if  |candidate − reference| ≤ threshold
+threshold = abs + rel * |reference_value|
+PASS  if  |candidate - reference| <= threshold
 ```
 
 ### Absolute tolerance (`abs`)
@@ -337,7 +377,7 @@ The same threshold `0.01` applies whether the value is `1` or `1 000 000`.
 
 ### Relative tolerance (`rel`)
 
-The threshold is proportional to the reference value — useful when you want
+The threshold is proportional to the reference value - useful when you want
 to accept a percentage deviation:
 
 ```{r rel-tolerance}
@@ -345,7 +385,7 @@ rules_rel <- tempfile(fileext = ".yaml")
 write_rules_template(ref_num, key = "id", path = rules_rel,
                      numeric_abs = 0, numeric_rel = 0.01)
 
-# ref = 1000, diff = 9, threshold = 0.01 × 1000 = 10 → PASS
+# ref = 1000, diff = 9, threshold = 0.01 * 1000 = 10 -> PASS
 cand_pct <- data.frame(id = 1:3, price = c(1.009, 1009.0, 1e6 * 1.009))
 compare_datasets_from_yaml(ref_num, cand_pct, key = "id", path = rules_rel)$all_passed
 ```
@@ -360,11 +400,11 @@ Combine both parameters when values span a wide range including near-zero:
 ```yaml
 by_type:
   numeric:
-    abs: 0.001   # floor: protects against false positives when ref ≈ 0
+    abs: 0.001   # floor: protects against false positives when ref ~ 0
     rel: 0.005   # +0.5% for larger values
 ```
 
-For `ref = 1 000 000`: `threshold = 0.001 + 0.005 × 1 000 000 = 5000.001`
+For `ref = 1 000 000`: `threshold = 0.001 + 0.005 * 1 000 000 = 5000.001`
 
 > **Rule of thumb**: keep `rel: 0` (the default) unless you explicitly need
 > a tolerance proportional to the magnitude of the data.
@@ -378,7 +418,7 @@ Floating-point subtraction can introduce rounding errors:
 100.01 - 100.00
 ```
 
-`datadiff` automatically adds a correction of `8 × .Machine$double.eps × |ref|`
+`datadiff` automatically adds a correction of `8 * .Machine$double.eps * |ref|`
 to the threshold to absorb these representation errors without meaningfully
 widening the user-specified tolerance.
 
@@ -426,7 +466,7 @@ write_rules_template(ref_txt, key = "id", path = rules_strict)
 compare_datasets_from_yaml(ref_txt, cand_txt, key = "id",
                            path = rules_strict)$all_passed
 
-# Relaxed: case + trim — only row 4 ("Baz" vs "Bar") fails
+# Relaxed: case + trim - only row 4 ("Baz" vs "Bar") fails
 rules_relax <- tempfile(fileext = ".yaml")
 write_rules_template(ref_txt, key = "id", path = rules_relax,
                      character_case_insensitive = TRUE,
@@ -447,8 +487,8 @@ number of rows.
 
 ```{r row-validation}
 ref_rows  <- data.frame(id = 1:5, value = 1:5)
-cand_ok   <- data.frame(id = 1:5, value = 1:5)   # 5 rows — exact match
-cand_more <- data.frame(id = 1:7, value = 1:7)   # 7 rows — 2 extra
+cand_ok   <- data.frame(id = 1:5, value = 1:5)   # 5 rows - exact match
+cand_more <- data.frame(id = 1:7, value = 1:7)   # 7 rows - 2 extra
 
 rules_count <- tempfile(fileext = ".yaml")
 write_rules_template(ref_rows, key = "id", path = rules_count,
@@ -469,9 +509,11 @@ rules_tol <- tempfile(fileext = ".yaml")
 write_rules_template(ref_rows, key = "id", path = rules_tol,
                      check_count_default         = TRUE,
                      expected_count_default      = 5,
-                     row_count_tolerance_default = 3)  # accept 5 ± 3
+                     row_count_tolerance_default = 3)  # accept 5 +/- 3
 
-# 7 rows: |7 - 5| = 2 ≤ 3 → PASS
+# row_count check PASSES: |7 - 5| = 2 is within tolerance 3.
+# all_passed is still FALSE here: the 2 extra keyed rows (id 6, 7) have
+# no reference counterpart and fail the per-column value comparison.
 compare_datasets_from_yaml(ref_rows, cand_more, key = "id",
                            path = rules_tol)$all_passed
 ```
@@ -489,14 +531,14 @@ The `na_equal` setting controls whether `NA == NA` is treated as a pass:
 ref_na  <- data.frame(id = 1:3, value = c(1.0, NA, 3.0))
 cand_na <- data.frame(id = 1:3, value = c(1.0, NA, 3.0))  # identical NAs
 
-# na_equal: yes (default) — NA == NA passes
+# na_equal: yes (default) - NA == NA passes
 rules_na_yes <- tempfile(fileext = ".yaml")
 write_rules_template(ref_na, key = "id", path = rules_na_yes,
                      na_equal_default = TRUE)
 compare_datasets_from_yaml(ref_na, cand_na, key = "id",
                            path = rules_na_yes)$all_passed
 
-# na_equal: no — NA == NA fails
+# na_equal: no - NA == NA fails
 rules_na_no <- tempfile(fileext = ".yaml")
 write_rules_template(ref_na, key = "id", path = rules_na_no,
                      na_equal_default = FALSE)
@@ -547,7 +589,7 @@ result_cols$all_passed             # FALSE: b is missing
 
 ### Utility: `analyze_columns()`
 
-`analyze_columns()` exposes the column comparison logic independently — useful
+`analyze_columns()` exposes the column comparison logic independently - useful
 for pre-flight checks before running the full validation:
 
 ```{r analyze-columns}
@@ -645,7 +687,7 @@ tryCatch(
 ## 12. Type mismatch detection
 
 When a column has incompatible types in reference and candidate, `datadiff`
-warns and adds a dedicated failing step — instead of silently coercing or
+warns and adds a dedicated failing step - instead of silently coercing or
 crashing:
 
 ```{r type-mismatch, warning = TRUE}
@@ -658,7 +700,7 @@ tryCatch(
 )
 ```
 
-`integer` and `numeric` are treated as compatible types — tolerance arithmetic
+`integer` and `numeric` are treated as compatible types - tolerance arithmetic
 works correctly across them and no mismatch is raised.
 
 ---
@@ -688,7 +730,7 @@ YAML.
 
 ### `derive_column_rules()`
 
-Shows the merged per-column rules for a given dataset and rules object —
+Shows the merged per-column rules for a given dataset and rules object -
 equivalent to `result$applied_rules` but callable without running the full
 comparison:
 
@@ -775,10 +817,25 @@ Supported languages include `"en"`, `"fr"`, `"de"`, `"it"`, `"es"`, `"pt"`,
 
 ## 15. Working with large datasets
 
+### Many columns (wide tables)
+
+`datadiff` first computes the verdict in a single vectorised pass over boolean
+comparison columns. When **everything passes**, it skips building a per-column
+pointblank agent entirely (that step grows roughly quadratically with the
+number of columns), so a wide reference - hundreds or thousands of columns -
+validates in seconds instead of minutes. When something fails, only the
+columns that actually fail get a pointblank step, so the cost scales with the
+number of failing columns, not the total.
+
+This optimisation is invisible to you: `all_passed`, `coverage`, and the
+extracted failing cells are exactly what a full per-column run would produce.
+The only thing deferred is the **rendered** report, which is built on demand
+when you print `result$reponse` (section 2).
+
 ### Lazy tables (dbplyr)
 
 Any SQL-backed table wrapped in `dplyr::tbl()` can be passed directly. The
-join, normalization, and boolean expressions are pushed down to SQL — no data
+join, normalization, and boolean expressions are pushed down to SQL - no data
 is loaded into R until the final slim result table:
 
 ```{r lazy-dbplyr, eval = FALSE}
@@ -806,8 +863,8 @@ This works with any DBI-compatible backend: SQLite, PostgreSQL, Snowflake, etc.
 
 ### Arrow / Parquet (out-of-core)
 
-For files too large to fit in RAM, pass `arrow::open_dataset()` directly — the
-package handles the Arrow → DuckDB conversion internally with a single private
+For files too large to fit in RAM, pass `arrow::open_dataset()` directly - the
+package handles the Arrow -> DuckDB conversion internally with a single private
 connection:
 
 ```{r large-arrow, eval = FALSE}

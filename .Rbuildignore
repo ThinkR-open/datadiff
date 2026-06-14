@@ -11,3 +11,5 @@
 ^results_sas\.sas7bdat\.yaml$
 ^bash\.exe\.stackdump$
 ^README\.Rmd$
+^doc$
+^Meta$

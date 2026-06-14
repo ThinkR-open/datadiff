@@ -21,7 +21,7 @@
 #' @param na_equal Logical; whether NA/NaN on both sides count as equal.
 #' @return A list with numeric vectors \code{absdiff}, \code{thresh} and the
 #'   logical vector \code{ok}.
-#' @keywords internal
+#' @noRd
 compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equal) {
   both_na  <- is.na(cand_vals) & is.na(ref_vals)
   one_na   <- is.na(cand_vals) | is.na(ref_vals)

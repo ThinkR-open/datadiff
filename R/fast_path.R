@@ -7,20 +7,34 @@
 #     under the same na_pass = na_equal semantics pointblank uses (any NA on
 #     either side passes iff na_equal).
 
-tol_col_passes <- function(tbl, col) {
-  isTRUE(all(tbl[[paste0(col, "__ok")]]))
+# Per-row boolean outcome of a tolerance column: the pre-computed <col>__ok
+# vector. NA (never produced by construction) would count as a failure, matching
+# col_vals_equal(..., na_pass = FALSE).
+tol_col_bool <- function(tbl, col) {
+  tbl[[paste0(col, "__ok")]]
 }
 
-eq_col_passes <- function(tbl, col, ref_suffix, na_equal) {
+# Per-row boolean outcome of an equality column, resolved to TRUE/FALSE (no NA):
+# the pre-computed <col>__eq vector (lazy path) or, when absent (local path), the
+# raw comparison under the same na_pass = na_equal semantics pointblank uses
+# (any NA on either side passes iff na_equal).
+eq_col_bool <- function(tbl, col, ref_suffix, na_equal) {
   eq_precomputed <- tbl[[paste0(col, "__eq")]]
   if (!is.null(eq_precomputed)) {
-    return(isTRUE(all(eq_precomputed)))
+    return(eq_precomputed)
   }
   cand_vals <- tbl[[col]]
   ref_vals  <- tbl[[paste0(col, ref_suffix)]]
   cmp_res   <- cand_vals == ref_vals
-  row_pass  <- ifelse(is.na(cmp_res), na_equal, cmp_res)
-  isTRUE(all(row_pass))
+  ifelse(is.na(cmp_res), na_equal, cmp_res)
+}
+
+tol_col_passes <- function(tbl, col) {
+  isTRUE(all(tol_col_bool(tbl, col = col)))
+}
+
+eq_col_passes <- function(tbl, col, ref_suffix, na_equal) {
+  isTRUE(all(eq_col_bool(tbl, col = col, ref_suffix = ref_suffix, na_equal = na_equal)))
 }
 
 #' Fast global pass/fail without building the per-column pointblank agent
@@ -40,7 +54,7 @@ eq_col_passes <- function(tbl, col, ref_suffix, na_equal) {
 #' @param ref_suffix Suffix identifying reference columns.
 #' @param na_equal Logical; whether NA equals NA for equality columns.
 #' @return \code{TRUE} iff every tolerance and equality check passes.
-#' @keywords internal
+#' @noRd
 all_validations_pass <- function(tbl, tol_cols, eq_cols, ref_suffix, na_equal) {
   for (c in tol_cols) {
     if (!tol_col_passes(tbl, col = c)) {
@@ -65,7 +79,7 @@ all_validations_pass <- function(tbl, tol_cols, eq_cols, ref_suffix, na_equal) {
 #' @inheritParams all_validations_pass
 #' @return A list with \code{tol} and \code{eq} character vectors of failing
 #'   column names.
-#' @keywords internal
+#' @noRd
 failing_columns <- function(tbl, tol_cols, eq_cols, ref_suffix, na_equal) {
   fail_tol <- tol_cols[vapply(tol_cols, function(c) {
     !tol_col_passes(tbl, col = c)
@@ -88,7 +102,7 @@ failing_columns <- function(tbl, tol_cols, eq_cols, ref_suffix, na_equal) {
 #' @param label,warn_at,stop_at,lang,locale Passed through to
 #'   \code{pointblank::create_agent} / \code{action_levels}.
 #' @return A configured (not yet interrogated) \code{ptblank_agent}.
-#' @keywords internal
+#' @noRd
 build_pass_agent <- function(tbl, label, warn_at, stop_at, lang, locale) {
   # The trivially-passing col_exists step needs at least one column to target.
   # Degenerate inputs (no tolerance, equality or row-count columns to validate)

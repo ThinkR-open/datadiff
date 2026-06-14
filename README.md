@@ -47,7 +47,17 @@ write_rules_template(reference, key = "id",
 
 # Compare datasets
 result <- compare_datasets_from_yaml(reference, candidate, path = "validation_rules.yaml")
+
+result$all_passed   # overall verdict (TRUE/FALSE)
+result$coverage     # one row per check performed: column, type, n, n_failed, status
+result$summary      # aggregate counts (n_checks, n_pass, n_fail, ...)
+
+# Printing the response lazily renders the full pointblank-style report
+# (built on demand, only when displayed):
 print(result$reponse)
+
+# ...or export that report to a standalone HTML file:
+datadiff_report_html(result, file = "report.html")
 ```
 
 ## Key Features
@@ -63,6 +73,12 @@ print(result$reponse)
   pointblank
 - **Row Count Validation**: Ensure datasets have the expected number of
   rows
+- **Fast on wide tables**: an all-pass comparison short-circuits the
+  per-column pointblank agent, so validating hundreds/thousands of
+  columns stays quick
+- **Faithful coverage**: `result$coverage` always lists every check
+  performed (even when everything passes), and `result$reponse` renders
+  the full pointblank HTML report lazily, only when printed
 
 ## Dependencies
 
@@ -108,7 +124,7 @@ by_type:
   logical:
     equal_mode: exact
 by_name:
-  id: []              # no override — inherits integer rule (abs: 0)
+  id: []              # no override - inherits integer rule (abs: 0)
   amount:
     abs: 0.01         # override: accept differences up to 0.01 for this column
     rel: 0
@@ -141,10 +157,10 @@ by_name:
 For numeric columns, validation relies on a single **combined
 threshold**:
 
-    threshold  = abs + rel × |reference_value|
-    result = OK  if  |candidate - reference| ≤ threshold
+    threshold  = abs + rel * |reference_value|
+    result = OK  if  |candidate - reference| <= threshold
 
-The two parameters **add up**—they are not two independent guards.
+The two parameters **add up**: they are not two independent guards.
 
 | Parameter | Role | Default value |
 |----|----|----|
@@ -192,7 +208,7 @@ by_type:
 | 0.00 | 0.001 | 0.001 | **0** | **ERROR** (implicit division by zero) |
 
 > **Warning**: if the reference value is `0`, the relative threshold is
-> `0`—any difference, even tiny, will be detected as an error.  
+> `0`, so any difference, even tiny, will be detected as an error.  
 > This is why `abs` acts as a safety floor.
 
 #### Mixed mode: when and how to use it
@@ -203,17 +219,17 @@ Combining both parameters is useful when values can be close to zero
 ``` yaml
 by_type:
   numeric:
-    abs: 0.001   # floor: protects the ref ≈ 0 case
+    abs: 0.001   # floor: protects the ref ~ 0 case
     rel: 0.01    # +1% for large values
 ```
 
 For `ref = 1 000 000`:
-`threshold = 0.001 + 0.01 × 1 000 000 = 10 000.001`
+`threshold = 0.001 + 0.01 * 1 000 000 = 10 000.001`
 
 > **Pitfall**: with `rel > 0` and large reference values, the threshold
 > can become much wider than you intuitively expect.  
 > For example, `rel: 1e-9` on a value of `12 000 000` yields a threshold
-> of `≈ 0.012`, so a difference of `0.000565` would pass undetected,
+> of `~ 0.012`, so a difference of `0.000565` would pass undetected,
 > even with `abs: 1e-9`.
 >
 > **Rule of thumb**: use `rel: 0` (the default) unless you explicitly
@@ -268,17 +284,17 @@ row_validation:
 ```
 
 This validates that the candidate dataset has between 950 and 1050 rows
-(1000 ± 50).
+(1000 +/- 50).
 
-If `expected_count` is not specified, the reference dataset’s row count
+If `expected_count` is not specified, the reference dataset's row count
 is used as the expected value.
 
 ## Comparing Parquet files (large datasets)
 
 `datadiff` can compare Parquet files that are too large to fit in RAM.
-The recommended approach uses `arrow::open_dataset()` — **do not call
+The recommended approach uses `arrow::open_dataset()` - **do not call
 `arrow::to_duckdb()` yourself** before passing to `datadiff`; the
-package handles the Arrow → DuckDB conversion internally with a single
+package handles the Arrow -> DuckDB conversion internally with a single
 connection.
 
 ### Recommended strategy: Arrow Dataset (lazy, out-of-core)
@@ -293,7 +309,7 @@ ds_cand <- arrow::open_dataset("path/to/candidate/")
 # Generate a rules template from the schema (no data loaded)
 write_rules_template(ds_ref, key = "ID", path = "rules.yaml")
 
-# Compare — stays lazy until the final boolean slim table
+# Compare - stays lazy until the final boolean slim table
 result <- compare_datasets_from_yaml(
   data_reference = ds_ref,
   data_candidate = ds_cand,
@@ -306,21 +322,21 @@ Internally, `compare_datasets_from_yaml()`:
 
 1.  Opens a private DuckDB connection (`fresh_con`).
 2.  Materialises each Parquet dataset as a DuckDB physical temp table
-    via `read_parquet()` — all memory is managed by DuckDB’s buffer
+    via `read_parquet()` - all memory is managed by DuckDB's buffer
     pool, so disk spilling works correctly.
 3.  Runs the full join + 125 boolean expressions as a single lazy SQL
     query.
 4.  `dplyr::compute()` materialises only the slim boolean result table
-    (~125 logical columns × N rows) — the wide source data is never
+    (~125 logical columns * N rows) - the wide source data is never
     loaded into R.
 5.  `dplyr::collect()` brings the slim boolean table (~few GB) into R
-    and passes a plain `data.frame` to pointblank — no live DuckDB
+    and passes a plain `data.frame` to pointblank - no live DuckDB
     connection needed during interrogation.
 6.  Disconnects and destroys `fresh_con` on exit.
 
 ### Memory tuning: `duckdb_memory_limit`
 
-DuckDB’s default memory cap (80 % of total RAM) can leave insufficient
+DuckDB's default memory cap (80 % of total RAM) can leave insufficient
 headroom when R, Arrow, and the OS are already using significant memory.
 The `duckdb_memory_limit` parameter controls how much RAM DuckDB may use
 before spilling intermediate results to `tempdir()`:
@@ -331,7 +347,7 @@ result <- compare_datasets_from_yaml(
   data_candidate    = ds_cand,
   key               = "ID",
   path              = "rules.yaml",
-  duckdb_memory_limit = "8GB"   # default — safe for machines with >= 16 GB
+  duckdb_memory_limit = "8GB"   # default - safe for machines with >= 16 GB
 )
 ```
 
@@ -344,7 +360,7 @@ result <- compare_datasets_from_yaml(
 
 Increasing the limit reduces disk I/O and speeds up the comparison;
 decreasing it protects against OOM on memory-constrained machines. The
-limit only applies when Arrow datasets are used — it has no effect for
+limit only applies when Arrow datasets are used - it has no effect for
 `data.frame` or `tbl_lazy` inputs.
 
 ### Strategy comparison
@@ -354,7 +370,7 @@ limit only applies when Arrow datasets are used — it has no effect for
 | **Arrow Dataset** ✅ recommended | `arrow::open_dataset()` | Slim boolean table only (~few GB) | arrow, duckdb |
 | Arrow Table | `arrow::read_parquet(as_data_frame=FALSE)` | Same as Arrow Dataset | arrow, duckdb |
 | Lazy table (dbplyr) | `tbl(con, "table_name")` | Slim boolean table only | DBI, dbplyr |
-| `data.frame` | `read.csv()`, `readr::read_csv()`, etc. | Full data in RAM | — |
+| `data.frame` | `read.csv()`, `readr::read_csv()`, etc. | Full data in RAM | - |
 
 ### What NOT to do
 
@@ -363,7 +379,7 @@ limit only applies when Arrow datasets are used — it has no effect for
 ds_ref_duckdb  <- arrow::to_duckdb(ds_ref)   # creates Arrow's internal connection
 ds_cand_duckdb <- arrow::to_duckdb(ds_cand)  # different connection!
 result <- compare_datasets_from_yaml(ds_ref_duckdb, ds_cand_duckdb, ...)
-# → cross-connection join fails in pointblank
+# -> cross-connection join fails in pointblank
 
 # ❌ DO NOT collect before passing
 ref_df <- dplyr::collect(ds_ref)   # loads full 4 GB into R RAM
@@ -373,7 +389,7 @@ ref_df <- dplyr::collect(ds_ref)   # loads full 4 GB into R RAM
 
 DuckDB spills to `tempdir()` when the memory limit is reached. On
 Windows this is typically `C:\Users\<user>\AppData\Local\Temp`. Ensure
-that directory has sufficient free disk space (up to ~2–3× the size of
+that directory has sufficient free disk space (up to ~2-3* the size of
 your Parquet files in the worst case).
 
 ## Main Functions

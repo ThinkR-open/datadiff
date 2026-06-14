@@ -510,7 +510,7 @@ test_that("seuil 1e-9 (defaut): seule une difference < 1e-9 passe", {
 test_that("integration seuil 1e-9 (defaut): absdiff=0.000565 detecte via compare_datasets_from_yaml", {
   ref <- data.frame(id = 1L, value = 1.0)
   # La difference 0.000565 est caracteristique d'une erreur de calcul ou
-  # d'arrondi non negligeable — elle doit etre detectee avec le seuil par defaut
+  # d'arrondi non negligeable - elle doit etre detectee avec le seuil par defaut
   cand <- data.frame(id = 1L, value = 1.000565)
 
   template_path <- tempfile(fileext = ".yaml")

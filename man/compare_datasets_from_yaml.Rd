@@ -82,10 +82,19 @@ when memory is very constrained. Has no effect when both inputs are plain
 \value{
 A list containing:
 \item{agent}{Configured pointblank agent with validation results}
-\item{reponse}{Interrogation results from pointblank}
+\item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
+usable by \code{pointblank::all_passed()} / \code{get_data_extracts()};
+printing it lazily renders a full pointblank-style report from
+\code{coverage} (built on demand, memoized).}
 \item{missing_in_candidate}{Columns missing in candidate data}
 \item{extra_in_candidate}{Extra columns in candidate data}
 \item{applied_rules}{Final column-specific rules applied}
+\item{coverage}{A \code{datadiff_coverage} data.frame: one row per check
+actually performed (column, check type, n, n_failed, status), always
+produced at negligible cost so the verified checks stay visible even when
+the fast path skips the per-column agent.}
+\item{summary}{Aggregate counts from \code{coverage} (n_checks, n_pass,
+n_fail, n_rows_failed_total, all_passed).}
 }
 \description{
 Main function for comparing reference and candidate datasets using configurable
