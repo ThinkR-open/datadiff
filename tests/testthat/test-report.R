@@ -51,7 +51,7 @@ test_that("build_report_agent warn/stop honour the supplied thresholds", {
     row_validation_info = list(check_count = FALSE), row_count_ok = TRUE,
     ref_suffix = "__reference", na_equal = TRUE
   )
-  b_row <- which(vapply(cov$column, identical, logical(1), "b"))
+  b_row <- which(cov$column == "b" & cov$check == "tolerance")
 
   # Thresholds ABOVE the fraction: column b should stay green.
   ag_loose <- build_report_agent(
@@ -68,6 +68,131 @@ test_that("build_report_agent warn/stop honour the supplied thresholds", {
   )
   expect_true(ag_tight$validation_set$warn[b_row])
   expect_true(ag_tight$validation_set$stop[b_row])
+})
+
+test_that("failing report merges the real extract and lists every column", {
+  ref  <- data.frame(id = 1:5, .row = 1L, a = c(1, 2, 3, 4, 5) * 1.0,
+                     b = c(10, 20, 30, 40, 50) * 1.0)
+  cand <- ref
+  cand$a[2] <- 999  # 2 failing rows on column a; b passes
+  cand$a[4] <- 888
+  tmp <- tempfile(fileext = ".yml")
+  on.exit(unlink(tmp), add = TRUE)
+  write_rules_template(ref, key = c("id", ".row"), numeric_abs = 0.101,
+                       integer_abs = 0L, path = tmp)
+  res <- suppressMessages(
+    compare_datasets_from_yaml(ref, cand, key = c("id", ".row"), path = tmp)
+  )
+  expect_false(res$all_passed)
+
+  ag <- build_report_agent(res$coverage, label = "L", lang = "en",
+                           locale = "en_US", real_agent = res$reponse)
+  vs <- ag$validation_set
+
+  # every coverage column is represented (full "X tests" overview)
+  expect_setequal(unlist(vs$column), unique(res$coverage$column))
+
+  # the failing column 'a' VALUE check keeps the REAL extract (2 failing rows),
+  # carried over to the new step index in agent$extracts
+  is_a <- vapply(vs$column, identical, logical(1), "a")
+  i_a <- which(is_a & vs$assertion_type == "col_vals_equal")
+  expect_length(i_a, 1L)
+  extract_a <- ag$extracts[[as.character(vs$i[i_a])]]
+  expect_false(is.null(extract_a))
+  expect_equal(nrow(as.data.frame(extract_a)), 2L)
+  expect_equal(vs$n_failed[i_a], 2)
+
+  # passing column 'b' value check has no extract
+  is_b <- vapply(vs$column, identical, logical(1), "b")
+  i_b <- which(is_b & vs$assertion_type == "col_vals_equal")
+  expect_null(ag$extracts[[as.character(vs$i[i_b])]])
+
+  expect_s3_class(pointblank::get_agent_report(ag), "gt_tbl")
+})
+
+test_that("col_exists rows stay PASS even when the column's value check fails", {
+  ref <- mk_ref(); cand <- ref
+  cand$a[2] <- 999  # value check for 'a' fails
+  res <- run(ref, cand)
+  expect_false(res$all_passed)
+  ag <- build_report_agent(res$coverage, label = "L", lang = "en",
+                           locale = "en_US", real_agent = res$reponse)
+  vs <- ag$validation_set
+  is_a <- vapply(vs$column, identical, logical(1), "a")
+
+  # the col_exists check for 'a' must remain PASS, with no extract
+  ce <- which(is_a & vs$assertion_type == "col_exists")
+  expect_length(ce, 1L)
+  expect_equal(vs$n_failed[ce], 0)
+  expect_null(ag$extracts[[as.character(vs$i[ce])]])
+
+  # the value check for 'a' still fails and keeps its extract
+  cv <- which(is_a & vs$assertion_type == "col_vals_equal")
+  expect_equal(vs$n_failed[cv], 1)
+  expect_false(is.null(ag$extracts[[as.character(vs$i[cv])]]))
+})
+
+test_that("report counts match coverage for structural checks (augment path)", {
+  ref  <- data.frame(id = 1:5, .row = 1L, a = c(1, 2, 3, 4, 5) * 1.0,
+                     b = c(1, 2, 3, 4, 5) * 1.0)
+  cand <- ref
+  cand$b <- NULL      # column b missing (structural)
+  cand$a[2] <- 999    # value check on a fails (keeps the augment path active)
+  res <- run(ref, cand)
+  expect_false(res$all_passed)
+
+  ag <- build_report_agent(res$coverage, label = "L", lang = "en",
+                           locale = "en_US", real_agent = res$reponse)
+  vs <- ag$validation_set
+
+  # the missing_column row must report coverage's counts (1/1), not nrow
+  cov_b <- res$coverage[res$coverage$column == "b" &
+                          res$coverage$check == "missing_column", ]
+  i_b <- which(vapply(vs$column, identical, logical(1), "b"))
+  expect_equal(vs$n[i_b], cov_b$n)
+  expect_equal(vs$n_failed[i_b], cov_b$n_failed)
+
+  # every report row's counts line up with the coverage row in the same position
+  expect_equal(vs$n_failed, res$coverage$n_failed)
+  expect_equal(vs$n, res$coverage$n)
+
+  # the failing value column 'a' still keeps its real extract
+  is_a <- vapply(vs$column, identical, logical(1), "a")
+  i_a <- which(is_a & vs$assertion_type == "col_vals_equal")
+  expect_false(is.null(ag$extracts[[as.character(vs$i[i_a])]]))
+})
+
+test_that("datadiff_report_html on a failing comparison contains the failing values", {
+  ref  <- data.frame(id = 1:5, .row = 1L, a = c(1, 2, 3, 4, 5) * 1.0)
+  cand <- ref
+  cand$a[2] <- 999
+  tmp <- tempfile(fileext = ".yml")
+  on.exit(unlink(tmp), add = TRUE)
+  write_rules_template(ref, key = c("id", ".row"), numeric_abs = 0.101,
+                       integer_abs = 0L, path = tmp)
+  res <- suppressMessages(
+    compare_datasets_from_yaml(ref, cand, key = c("id", ".row"), path = tmp)
+  )
+  out <- tempfile(fileext = ".html")
+  on.exit(unlink(out), add = TRUE)
+  datadiff_report_html(res, file = out)
+  html <- paste(readLines(out, warn = FALSE), collapse = "\n")
+  expect_true(grepl("999", html))   # the failing value is in the report
+  expect_true(grepl("CSV", html))   # the extract is downloadable
+})
+
+test_that("report presents col_exists AND col_vals_equal as distinct checks", {
+  res <- run(mk_ref(), mk_ref())  # all green
+  expect_true(res$all_passed)
+  ag <- build_report_agent(res$coverage, label = "L", lang = "en",
+                           locale = "en_US", real_agent = res$reponse)
+  types <- ag$validation_set$assertion_type
+  # both kinds of check must appear, not collapsed into one
+  expect_true("col_exists" %in% types)
+  expect_true("col_vals_equal" %in% types)
+  # the existence checks line up with the coverage col_exists rows
+  expect_equal(sum(types == "col_exists"),
+               sum(res$coverage$check == "col_exists"))
 })
 
 test_that("get_agent_report renders the injected agent without error", {
