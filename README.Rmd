@@ -56,7 +56,17 @@ write_rules_template(reference, key = "id",
 
 # Compare datasets
 result <- compare_datasets_from_yaml(reference, candidate, path = "validation_rules.yaml")
+
+result$all_passed   # overall verdict (TRUE/FALSE)
+result$coverage     # one row per check performed: column, type, n, n_failed, status
+result$summary      # aggregate counts (n_checks, n_pass, n_fail, ...)
+
+# Printing the response lazily renders the full pointblank-style report
+# (built on demand, only when displayed):
 print(result$reponse)
+
+# ...or export that report to a standalone HTML file:
+datadiff_report_html(result, file = "report.html")
 ```
 
 ## Key Features
@@ -67,6 +77,11 @@ print(result$reponse)
 - **Type-Aware Validation**: Different rules for different data types
 - **Comprehensive Reporting**: Detailed validation reports powered by pointblank
 - **Row Count Validation**: Ensure datasets have the expected number of rows
+- **Fast on wide tables**: an all-pass comparison short-circuits the per-column
+  pointblank agent, so validating hundreds/thousands of columns stays quick
+- **Faithful coverage**: `result$coverage` always lists every check performed
+  (even when everything passes), and `result$reponse` renders the full
+  pointblank HTML report lazily, only when printed
 
 ## Dependencies
 

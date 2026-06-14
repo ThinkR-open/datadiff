@@ -156,10 +156,19 @@ read_rules <- function(path) {
 #'   `data.frame`s or `tbl_lazy` objects.
 #' @return A list containing:
 #'   \item{agent}{Configured pointblank agent with validation results}
-#'   \item{reponse}{Interrogation results from pointblank}
+#'   \item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
+#'     usable by \code{pointblank::all_passed()} / \code{get_data_extracts()};
+#'     printing it lazily renders a full pointblank-style report from
+#'     \code{coverage} (built on demand, memoized).}
 #'   \item{missing_in_candidate}{Columns missing in candidate data}
 #'   \item{extra_in_candidate}{Extra columns in candidate data}
 #'   \item{applied_rules}{Final column-specific rules applied}
+#'   \item{coverage}{A \code{datadiff_coverage} data.frame: one row per check
+#'     actually performed (column, check type, n, n_failed, status), always
+#'     produced at negligible cost so the verified checks stay visible even when
+#'     the fast path skips the per-column agent.}
+#'   \item{summary}{Aggregate counts from \code{coverage} (n_checks, n_pass,
+#'     n_fail, n_rows_failed_total, all_passed).}
 #' @importFrom dplyr arrange across left_join %>%
 #' @importFrom pointblank interrogate
 #' @importFrom dplyr collect
@@ -558,6 +567,18 @@ compare_datasets_from_yaml <- function(data_reference,
       ref_suffix = ref_suffix, na_equal = na_equal
     )
 
+  # Faithful, O(columns) record of every check performed, built from the same
+  # booleans the verdict is derived from. Always produced (green and red) so the
+  # caller can see what was verified even when the fast path skips the per-column
+  # pointblank agent.
+  coverage <- build_coverage(
+    tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+    missing_in_candidate = missing_in_candidate,
+    type_mismatch_cols = type_mismatch_cols,
+    row_validation_info = row_validation_info, row_count_ok = row_count_ok,
+    ref_suffix = ref_suffix, na_equal = na_equal
+  )
+
   if (all_passed_fast) {
     agent <- build_pass_agent(
       tbl = cmp_for_agent, label = label,
@@ -602,12 +623,23 @@ compare_datasets_from_yaml <- function(data_reference,
     sample_limit = sample_limit
   )
 
+  all_passed <- pointblank::all_passed(reponse)
+
+  # Make reponse render the full pointblank report lazily (on print) from the
+  # coverage, while remaining a real interrogated agent for all_passed() and
+  # get_data_extracts().
+  reponse <- as_datadiff_report(
+    reponse, coverage = coverage, label = label, lang = lang, locale = locale
+  )
+
   list(
-    all_passed = pointblank::all_passed(reponse),
+    all_passed = all_passed,
     agent = agent,
     reponse = reponse,
     missing_in_candidate = missing_in_candidate,
     extra_in_candidate = extra_in_candidate,
-    applied_rules = col_rules
+    applied_rules = col_rules,
+    coverage = coverage,
+    summary = summarize_coverage(coverage)
   )
 }

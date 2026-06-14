@@ -1,3 +1,40 @@
+# datadiff 0.4.6
+
+## New features
+
+* `compare_datasets_from_yaml()` now returns `coverage` and `summary`. The
+  `coverage` data.frame is a faithful, instantly computed record of every check
+  performed (one row per column with its check type, number of rows, number of
+  failures and PASS/FAIL status); `summary` holds the aggregate counts. This
+  keeps the verified checks visible even when the all-pass fast path skips the
+  per-column {pointblank} agent, so an all-green run no longer looks empty.
+
+* Printing `result$reponse` now lazily renders a full {pointblank}-style report.
+  `result$reponse` stays a real interrogated agent (so `pointblank::all_passed()`
+  and `pointblank::get_data_extracts()` keep working), but printing it builds the
+  per-column report on demand from the pre-computed counts (no re-interrogation)
+  and memoizes the result, so the rendering cost is paid only when the report is
+  actually displayed.
+
+* New exported `datadiff_report_html()` writes that {pointblank}-style report to
+  a standalone HTML file.
+
+# datadiff 0.4.5
+
+## Performance
+
+* `compare_datasets_from_yaml()` is dramatically faster on wide tables. The
+  verdict is computed in a single vectorised pass over the precomputed
+  comparison booleans; when everything passes, the expensive per-column
+  {pointblank} agent (one validation step per column, roughly quadratic in the
+  number of columns) is skipped entirely. On a failing comparison, validation
+  steps are built only for the columns that actually fail. `all_passed` and the
+  extracted failing cells are unchanged.
+
+* `add_tolerance_columns()`: the per-column tolerance computation was rewritten
+  to avoid quadratic data.frame growth (the result columns are bound in a single
+  operation instead of one assignment per column), with no change to the verdict.
+
 # datadiff 0.4.4
 
 ## CRAN submission preparation
