@@ -100,6 +100,67 @@ add_ok_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
   cbind(cmp, list2DF(ok_cols))
 }
 
+#' Add `<col>__ok` / `<col>__eq` boolean columns to a lazy table via one SQL SELECT
+#'
+#' On the lazy path, building the per-column tolerance/equality booleans with
+#' `dplyr::mutate()` is O(expressions) on the R side (dbplyr query construction
+#' and SQL rendering dominate; e.g. ~60 s of 64 s for 300 columns). This builds
+#' the same boolean columns in a single templated SQL `SELECT`, leaving DuckDB to
+#' execute. The CASE WHEN logic reproduces exactly the `dplyr::case_when` used
+#' previously (NULL handling and IEEE 754 fp correction inlined), so the lazy
+#' verdict is unchanged.
+#'
+#' @param cmp A lazy table (the join of candidate and reference).
+#' @param tol_cols,eq_cols Tolerance / equality column names.
+#' @param col_rules Per-column rules (abs / rel).
+#' @param ref_suffix Reference-column suffix.
+#' @param na_equal Logical; NA equality semantics.
+#' @return A lazy table with the `<col>__ok` / `<col>__eq` columns added.
+#' @noRd
+add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix, na_equal) {
+  if (length(tol_cols) == 0 && length(eq_cols) == 0) {
+    return(cmp)
+  }
+  con <- dbplyr::remote_con(cmp)
+  sub <- dbplyr::sql_render(cmp)
+  q   <- function(x) as.character(DBI::dbQuoteIdentifier(con, x))
+  num <- function(x) sprintf("%.17g", x)
+  fp_eps <- 8 * .Machine$double.eps
+
+  case_bool <- function(cc, rc, cond) {
+    if (na_equal) {
+      sprintf(paste0("CASE WHEN %s IS NULL AND %s IS NULL THEN TRUE ",
+                     "WHEN %s IS NULL OR %s IS NULL THEN FALSE ",
+                     "WHEN %s THEN TRUE ELSE FALSE END"),
+              cc, rc, cc, rc, cond)
+    } else {
+      sprintf(paste0("CASE WHEN %s IS NULL OR %s IS NULL THEN FALSE ",
+                     "WHEN %s THEN TRUE ELSE FALSE END"),
+              cc, rc, cond)
+    }
+  }
+
+  exprs <- character(0)
+  for (c in tol_cols) {
+    cc <- q(c); rc <- q(paste0(c, ref_suffix))
+    at <- col_rules[[c]][["abs"]] %||% 0
+    rt <- col_rules[[c]][["rel"]] %||% 0
+    within <- sprintf("ABS(%s - %s) <= (%s + %s * ABS(%s)) + %s * ABS(%s)",
+                      cc, rc, num(at), num(rt), rc, num(fp_eps), rc)
+    exprs <- c(exprs, sprintf("%s AS %s", case_bool(cc, rc, within), q(paste0(c, "__ok"))))
+  }
+  for (c in eq_cols) {
+    cc <- q(c); rc <- q(paste0(c, ref_suffix))
+    exprs <- c(exprs, sprintf("%s AS %s",
+                              case_bool(cc, rc, sprintf("%s = %s", cc, rc)),
+                              q(paste0(c, "__eq"))))
+  }
+
+  select_sql <- sprintf("SELECT *, %s FROM (%s) AS %s",
+                        paste(exprs, collapse = ", "), sub, q("datadiff_bool"))
+  dplyr::tbl(con, dbplyr::sql(select_sql))
+}
+
 #' Add tolerance columns for numeric comparisons
 #'
 #' Creates additional columns in the comparison dataframe to handle numeric tolerance validation.

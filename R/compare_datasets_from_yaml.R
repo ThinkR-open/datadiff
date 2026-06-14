@@ -448,45 +448,19 @@ compare_datasets_from_yaml <- function(data_reference,
   }, FUN.VALUE = logical(1))]
   tol_cols <- setdiff(tol_cols, type_mismatch_cols)
 
-  # Add the per-column within-tolerance booleans. Only the `<col>__ok` columns
-  # drive the verdict, so the local path materialises only those (fast path);
-  # the lazy path keeps add_tolerance_columns for now.
+  # Add the per-column within-tolerance (__ok) and, on the lazy path, equality
+  # (__eq) booleans - the only columns that drive the verdict.
+  #  - Local: materialise only __ok via a vectorised fast path (__eq is
+  #    recomputed on the fly where needed).
+  #  - Lazy: build __ok AND __eq in a SINGLE templated SQL SELECT. Doing this
+  #    with per-column dplyr::mutate() is O(columns) on the R side (dbplyr query
+  #    construction + SQL rendering), the dominant cost on wide tables; the
+  #    templated SQL is O(1) dbplyr work and lets the database do the rest.
   cmp <- if (is_non_local(cmp)) {
-    add_tolerance_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
+    add_bool_cols_sql(cmp, tol_cols, setdiff(common_cols, tol_cols),
+                      col_rules, ref_suffix, na_equal)
   } else {
     add_ok_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
-  }
-
-  # For lazy tables, pre-compute equality columns for non-tolerance columns.
-  # pointblank's col_vals_equal(value = cmp[[col]]) cannot access SQL columns via [[,
-  # so we compute c__eq as a boolean SQL column and validate that against TRUE.
-  # All columns are batched into a single mutate() to prevent O(n) nested
-  # lazy_query nodes that would exceed R's expression evaluation stack limit.
-  if (is_non_local(cmp)) {
-    eq_cols_lazy <- setdiff(common_cols, tol_cols)
-    exprs_eq <- list()
-    for (c in eq_cols_lazy) {
-      c_sym     <- dplyr::sym(c)
-      rc_sym    <- dplyr::sym(paste0(c, ref_suffix))
-      eq_col_nm <- paste0(c, "__eq")
-      if (na_equal) {
-        exprs_eq[[eq_col_nm]] <- rlang::expr(dplyr::case_when(
-          is.na(!!c_sym) & is.na(!!rc_sym) ~ TRUE,
-          is.na(!!c_sym) | is.na(!!rc_sym) ~ FALSE,
-          !!c_sym == !!rc_sym              ~ TRUE,
-          .default = FALSE
-        ))
-      } else {
-        exprs_eq[[eq_col_nm]] <- rlang::expr(dplyr::case_when(
-          is.na(!!c_sym) | is.na(!!rc_sym) ~ FALSE,
-          !!c_sym == !!rc_sym              ~ TRUE,
-          .default = FALSE
-        ))
-      }
-    }
-    if (length(exprs_eq) > 0) {
-      cmp <- dplyr::mutate(cmp, !!!exprs_eq)
-    }
   }
 
   # Add row count validation column if needed
