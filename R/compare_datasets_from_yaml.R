@@ -313,56 +313,31 @@ compare_datasets_from_yaml <- function(data_reference,
 
   # Check for duplicate keys (only if key exists in both datasets)
   if (!is.null(key) && all(key %in% get_col_names(data_reference)) && all(key %in% get_col_names(data_candidate))) {
-    # Use SQL-native GROUP BY + COUNT to find duplicate key values (works for both
-    # local data.frames and lazy tables without bracket-subsetting).
-    ref_dups <- data_reference %>%
-      dplyr::count(dplyr::across(dplyr::all_of(key))) %>%
-      dplyr::filter(n > 1L) %>%
-      dplyr::collect()
+    # Detect duplicate key values. Local data.frames use a fast
+    # anyDuplicated()/duplicated() pass; lazy tables keep the SQL-native count.
+    ref_dup_info  <- find_duplicate_keys(data_reference, key)
+    cand_dup_info <- find_duplicate_keys(data_candidate, key)
 
-    cand_dups <- data_candidate %>%
-      dplyr::count(dplyr::across(dplyr::all_of(key))) %>%
-      dplyr::filter(n > 1L) %>%
-      dplyr::collect()
-
-    ref_has_dups <- nrow(ref_dups) > 0
-    cand_has_dups <- nrow(cand_dups) > 0
+    ref_has_dups  <- !is.null(ref_dup_info)
+    cand_has_dups <- !is.null(cand_dup_info)
 
     if (ref_has_dups || cand_has_dups) {
       # Build detailed warning message
       warning_parts <- c()
 
       if (ref_has_dups) {
-        n_dup_keys_ref <- nrow(ref_dups)
-        n_dup_rows_ref <- sum(ref_dups$n)
-        key_cols_ref <- ref_dups[, key, drop = FALSE]
-
-        examples_ref <- if (n_dup_keys_ref <= 3) {
-          apply(key_cols_ref, 1, function(r) { paste(key, "=", r, collapse = ", ") })
-        } else {
-          c(apply(key_cols_ref[1:3, , drop = FALSE], 1, function(r) { paste(key, "=", r, collapse = ", ") }), "...")
-        }
-
         warning_parts <- c(warning_parts, sprintf(
           "data_reference: %d duplicate key value(s) affecting %d rows (examples: %s)",
-          n_dup_keys_ref, n_dup_rows_ref, paste(examples_ref, collapse = "; ")
+          ref_dup_info$n_dup_keys, ref_dup_info$n_dup_rows,
+          paste(ref_dup_info$examples, collapse = "; ")
         ))
       }
 
       if (cand_has_dups) {
-        n_dup_keys_cand <- nrow(cand_dups)
-        n_dup_rows_cand <- sum(cand_dups$n)
-        key_cols_cand <- cand_dups[, key, drop = FALSE]
-
-        examples_cand <- if (n_dup_keys_cand <= 3) {
-          apply(key_cols_cand, 1, function(r) { paste(key, "=", r, collapse = ", ") })
-        } else {
-          c(apply(key_cols_cand[1:3, , drop = FALSE], 1, function(r) { paste(key, "=", r, collapse = ", ") }), "...")
-        }
-
         warning_parts <- c(warning_parts, sprintf(
           "data_candidate: %d duplicate key value(s) affecting %d rows (examples: %s)",
-          n_dup_keys_cand, n_dup_rows_cand, paste(examples_cand, collapse = "; ")
+          cand_dup_info$n_dup_keys, cand_dup_info$n_dup_rows,
+          paste(cand_dup_info$examples, collapse = "; ")
         ))
       }
 
