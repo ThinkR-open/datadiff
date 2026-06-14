@@ -154,11 +154,11 @@ by_name:
 For numeric columns, validation relies on a single **combined threshold**:
 
 ```
-threshold  = abs + rel × |reference_value|
-result = OK  if  |candidate - reference| ≤ threshold
+threshold  = abs + rel * |reference_value|
+result = OK  if  |candidate - reference| <= threshold
 ```
 
-The two parameters **add up**-they are not two independent guards.
+The two parameters **add up**: they are not two independent guards.
 
 | Parameter | Role | Default value |
 |-----------|------|---------------|
@@ -203,7 +203,7 @@ by_type:
 | 1 000 000.00 | 1 005 000.00 | 5 000 | 10 000 | OK |
 | 0.00 | 0.001 | 0.001 | **0** | **ERROR** (implicit division by zero) |
 
-> **Warning**: if the reference value is `0`, the relative threshold is `0`-any difference, even tiny, will be detected as an error.  
+> **Warning**: if the reference value is `0`, the relative threshold is `0`, so any difference, even tiny, will be detected as an error.  
 > This is why `abs` acts as a safety floor.
 
 #### Mixed mode: when and how to use it
@@ -213,14 +213,14 @@ Combining both parameters is useful when values can be close to zero **and** ver
 ```yaml
 by_type:
   numeric:
-    abs: 0.001   # floor: protects the ref ≈ 0 case
+    abs: 0.001   # floor: protects the ref ~ 0 case
     rel: 0.01    # +1% for large values
 ```
 
-For `ref = 1 000 000`: `threshold = 0.001 + 0.01 × 1 000 000 = 10 000.001`
+For `ref = 1 000 000`: `threshold = 0.001 + 0.01 * 1 000 000 = 10 000.001`
 
 > **Pitfall**: with `rel > 0` and large reference values, the threshold can become much wider than you intuitively expect.  
-> For example, `rel: 1e-9` on a value of `12 000 000` yields a threshold of `≈ 0.012`, so a difference of `0.000565` would pass undetected, even with `abs: 1e-9`.  
+> For example, `rel: 1e-9` on a value of `12 000 000` yields a threshold of `~ 0.012`, so a difference of `0.000565` would pass undetected, even with `abs: 1e-9`.  
 >
 > **Rule of thumb**: use `rel: 0` (the default) unless you explicitly need a tolerance proportional to the magnitude of the data.
 
@@ -264,7 +264,7 @@ row_validation:
   tolerance: 50
 ```
 
-This validates that the candidate dataset has between 950 and 1050 rows (1000 ± 50).
+This validates that the candidate dataset has between 950 and 1050 rows (1000 +/- 50).
 
 If `expected_count` is not specified, the reference dataset's row count is used as the expected value.
 
@@ -273,7 +273,7 @@ If `expected_count` is not specified, the reference dataset's row count is used 
 `datadiff` can compare Parquet files that are too large to fit in RAM.
 The recommended approach uses `arrow::open_dataset()` - **do not call
 `arrow::to_duckdb()` yourself** before passing to `datadiff`; the package
-handles the Arrow → DuckDB conversion internally with a single connection.
+handles the Arrow -> DuckDB conversion internally with a single connection.
 
 ### Recommended strategy: Arrow Dataset (lazy, out-of-core)
 
@@ -304,7 +304,7 @@ Internally, `compare_datasets_from_yaml()`:
    spilling works correctly.
 3. Runs the full join + 125 boolean expressions as a single lazy SQL query.
 4. `dplyr::compute()` materialises only the slim boolean result table
-   (~125 logical columns × N rows) - the wide source data is never loaded
+   (~125 logical columns * N rows) - the wide source data is never loaded
    into R.
 5. `dplyr::collect()` brings the slim boolean table (~few GB) into R and
    passes a plain `data.frame` to pointblank - no live DuckDB connection
@@ -356,7 +356,7 @@ inputs.
 ds_ref_duckdb  <- arrow::to_duckdb(ds_ref)   # creates Arrow's internal connection
 ds_cand_duckdb <- arrow::to_duckdb(ds_cand)  # different connection!
 result <- compare_datasets_from_yaml(ds_ref_duckdb, ds_cand_duckdb, ...)
-# → cross-connection join fails in pointblank
+# -> cross-connection join fails in pointblank
 
 # ❌ DO NOT collect before passing
 ref_df <- dplyr::collect(ds_ref)   # loads full 4 GB into R RAM
@@ -366,7 +366,7 @@ ref_df <- dplyr::collect(ds_ref)   # loads full 4 GB into R RAM
 
 DuckDB spills to `tempdir()` when the memory limit is reached. On Windows
 this is typically `C:\Users\<user>\AppData\Local\Temp`. Ensure that directory
-has sufficient free disk space (up to ~2-3× the size of your Parquet files
+has sufficient free disk space (up to ~2-3* the size of your Parquet files
 in the worst case).
 
 ## Main Functions

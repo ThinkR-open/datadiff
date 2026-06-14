@@ -157,10 +157,10 @@ by_name:
 For numeric columns, validation relies on a single **combined
 threshold**:
 
-    threshold  = abs + rel × |reference_value|
-    result = OK  if  |candidate - reference| ≤ threshold
+    threshold  = abs + rel * |reference_value|
+    result = OK  if  |candidate - reference| <= threshold
 
-The two parameters **add up**-they are not two independent guards.
+The two parameters **add up**: they are not two independent guards.
 
 | Parameter | Role | Default value |
 |----|----|----|
@@ -208,7 +208,7 @@ by_type:
 | 0.00 | 0.001 | 0.001 | **0** | **ERROR** (implicit division by zero) |
 
 > **Warning**: if the reference value is `0`, the relative threshold is
-> `0`-any difference, even tiny, will be detected as an error.  
+> `0`, so any difference, even tiny, will be detected as an error.  
 > This is why `abs` acts as a safety floor.
 
 #### Mixed mode: when and how to use it
@@ -219,17 +219,17 @@ Combining both parameters is useful when values can be close to zero
 ``` yaml
 by_type:
   numeric:
-    abs: 0.001   # floor: protects the ref ≈ 0 case
+    abs: 0.001   # floor: protects the ref ~ 0 case
     rel: 0.01    # +1% for large values
 ```
 
 For `ref = 1 000 000`:
-`threshold = 0.001 + 0.01 × 1 000 000 = 10 000.001`
+`threshold = 0.001 + 0.01 * 1 000 000 = 10 000.001`
 
 > **Pitfall**: with `rel > 0` and large reference values, the threshold
 > can become much wider than you intuitively expect.  
 > For example, `rel: 1e-9` on a value of `12 000 000` yields a threshold
-> of `≈ 0.012`, so a difference of `0.000565` would pass undetected,
+> of `~ 0.012`, so a difference of `0.000565` would pass undetected,
 > even with `abs: 1e-9`.
 >
 > **Rule of thumb**: use `rel: 0` (the default) unless you explicitly
@@ -284,9 +284,9 @@ row_validation:
 ```
 
 This validates that the candidate dataset has between 950 and 1050 rows
-(1000 ± 50).
+(1000 +/- 50).
 
-If `expected_count` is not specified, the reference dataset’s row count
+If `expected_count` is not specified, the reference dataset's row count
 is used as the expected value.
 
 ## Comparing Parquet files (large datasets)
@@ -294,7 +294,7 @@ is used as the expected value.
 `datadiff` can compare Parquet files that are too large to fit in RAM.
 The recommended approach uses `arrow::open_dataset()` - **do not call
 `arrow::to_duckdb()` yourself** before passing to `datadiff`; the
-package handles the Arrow → DuckDB conversion internally with a single
+package handles the Arrow -> DuckDB conversion internally with a single
 connection.
 
 ### Recommended strategy: Arrow Dataset (lazy, out-of-core)
@@ -322,12 +322,12 @@ Internally, `compare_datasets_from_yaml()`:
 
 1.  Opens a private DuckDB connection (`fresh_con`).
 2.  Materialises each Parquet dataset as a DuckDB physical temp table
-    via `read_parquet()` - all memory is managed by DuckDB’s buffer
+    via `read_parquet()` - all memory is managed by DuckDB's buffer
     pool, so disk spilling works correctly.
 3.  Runs the full join + 125 boolean expressions as a single lazy SQL
     query.
 4.  `dplyr::compute()` materialises only the slim boolean result table
-    (~125 logical columns × N rows) - the wide source data is never
+    (~125 logical columns * N rows) - the wide source data is never
     loaded into R.
 5.  `dplyr::collect()` brings the slim boolean table (~few GB) into R
     and passes a plain `data.frame` to pointblank - no live DuckDB
@@ -336,7 +336,7 @@ Internally, `compare_datasets_from_yaml()`:
 
 ### Memory tuning: `duckdb_memory_limit`
 
-DuckDB’s default memory cap (80 % of total RAM) can leave insufficient
+DuckDB's default memory cap (80 % of total RAM) can leave insufficient
 headroom when R, Arrow, and the OS are already using significant memory.
 The `duckdb_memory_limit` parameter controls how much RAM DuckDB may use
 before spilling intermediate results to `tempdir()`:
@@ -379,7 +379,7 @@ limit only applies when Arrow datasets are used - it has no effect for
 ds_ref_duckdb  <- arrow::to_duckdb(ds_ref)   # creates Arrow's internal connection
 ds_cand_duckdb <- arrow::to_duckdb(ds_cand)  # different connection!
 result <- compare_datasets_from_yaml(ds_ref_duckdb, ds_cand_duckdb, ...)
-# → cross-connection join fails in pointblank
+# -> cross-connection join fails in pointblank
 
 # ❌ DO NOT collect before passing
 ref_df <- dplyr::collect(ds_ref)   # loads full 4 GB into R RAM
@@ -389,7 +389,7 @@ ref_df <- dplyr::collect(ds_ref)   # loads full 4 GB into R RAM
 
 DuckDB spills to `tempdir()` when the memory limit is reached. On
 Windows this is typically `C:\Users\<user>\AppData\Local\Temp`. Ensure
-that directory has sufficient free disk space (up to ~2-3× the size of
+that directory has sufficient free disk space (up to ~2-3* the size of
 your Parquet files in the worst case).
 
 ## Main Functions
