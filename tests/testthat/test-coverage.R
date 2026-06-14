@@ -17,11 +17,14 @@ test_that("tolerance columns appear once each with correct counts", {
     row_validation_info = list(check_count = FALSE), row_count_ok = TRUE,
     ref_suffix = "__reference", na_equal = TRUE
   )
-  expect_equal(cov$column, c("a", "b"))
-  expect_equal(cov$check, c("tolerance", "tolerance"))
-  expect_equal(cov$n, c(3L, 3L))
-  expect_equal(cov$n_failed, c(0L, 1L))
-  expect_equal(cov$status, c("PASS", "FAIL"))
+  tol <- cov[cov$check == "tolerance", ]
+  expect_equal(tol$column, c("a", "b"))
+  expect_equal(tol$n, c(3L, 3L))
+  expect_equal(tol$n_failed, c(0L, 1L))
+  expect_equal(tol$status, c("PASS", "FAIL"))
+  # each column also gets a (passing) col_exists check, distinct from the value check
+  expect_setequal(cov$column[cov$check == "col_exists"], c("a", "b"))
+  expect_true(all(cov$status[cov$check == "col_exists"] == "PASS"))
 })
 
 # --- build_coverage: equality, lazy (__eq) and local (recompute) ------------
@@ -34,10 +37,11 @@ test_that("equality columns use pre-computed __eq when present (lazy path)", {
     row_validation_info = list(check_count = FALSE), row_count_ok = TRUE,
     ref_suffix = "__reference", na_equal = TRUE
   )
-  expect_equal(cov$check, "equality")
-  expect_equal(cov$n, 2L)
-  expect_equal(cov$n_failed, 1L)
-  expect_equal(cov$status, "FAIL")
+  eq <- cov[cov$check == "equality", ]
+  expect_equal(eq$n, 2L)
+  expect_equal(eq$n_failed, 1L)
+  expect_equal(eq$status, "FAIL")
+  expect_equal(cov$column[cov$check == "col_exists"], "txt")
 })
 
 test_that("equality columns recompute from raw values when no __eq (local path)", {
@@ -52,9 +56,10 @@ test_that("equality columns recompute from raw values when no __eq (local path)"
     row_validation_info = list(check_count = FALSE), row_count_ok = TRUE,
     ref_suffix = "__reference", na_equal = TRUE
   )
-  expect_equal(cov$n, 3L)
-  expect_equal(cov$n_failed, 1L)
-  expect_equal(cov$status, "FAIL")
+  eq <- cov[cov$check == "equality", ]
+  expect_equal(eq$n, 3L)
+  expect_equal(eq$n_failed, 1L)
+  expect_equal(eq$status, "FAIL")
 })
 
 test_that("equality NA semantics follow na_equal (local path)", {
@@ -67,8 +72,10 @@ test_that("equality NA semantics follow na_equal (local path)", {
                           list(check_count = FALSE), TRUE, "__reference", TRUE)
   cov_f <- build_coverage(tbl, character(0), "txt", character(0), character(0),
                           list(check_count = FALSE), TRUE, "__reference", FALSE)
-  expect_equal(cov_t$n_failed, 0L) # NA both sides + na_equal TRUE -> pass
-  expect_equal(cov_f$n_failed, 1L) # na_equal FALSE -> the NA row fails
+  eq_t <- cov_t[cov_t$check == "equality", ]
+  eq_f <- cov_f[cov_f$check == "equality", ]
+  expect_equal(eq_t$n_failed, 0L) # NA both sides + na_equal TRUE -> pass
+  expect_equal(eq_f$n_failed, 1L) # na_equal FALSE -> the NA row fails
 })
 
 # --- build_coverage: structural checks --------------------------------------
@@ -115,7 +122,7 @@ test_that("row_count appears only when check_count is enabled, with right status
 
 # --- exhaustivity & degenerate -----------------------------------------------
 
-test_that("every column appears exactly once across check types", {
+test_that("every column is covered: common columns get col_exists + a value check", {
   tbl <- data.frame(a__ok = c(TRUE, TRUE), b__ok = c(TRUE, FALSE),
                     t__eq = c(TRUE, TRUE))
   cov <- build_coverage(
@@ -124,9 +131,13 @@ test_that("every column appears exactly once across check types", {
     row_validation_info = list(check_count = TRUE), row_count_ok = TRUE,
     ref_suffix = "__reference", na_equal = TRUE
   )
-  value_and_struct <- cov[cov$check != "row_count", "column"]
-  expect_setequal(value_and_struct, c("a", "b", "t", "m", "z"))
-  expect_equal(anyDuplicated(value_and_struct), 0L)
+  # common columns each appear as a col_exists AND a value (tolerance/equality) check
+  expect_setequal(cov$column[cov$check == "col_exists"], c("a", "b", "t"))
+  value <- cov[cov$check %in% c("tolerance", "equality"), "column"]
+  expect_setequal(value, c("a", "b", "t"))
+  # structural checks appear once each
+  expect_equal(cov$column[cov$check == "missing_column"], "m")
+  expect_equal(cov$column[cov$check == "type_mismatch"], "z")
 })
 
 test_that("empty inputs yield a 0-row coverage with the right columns", {
@@ -150,9 +161,10 @@ test_that("summarize_coverage aggregates checks and pass/fail counts", {
     row_validation_info = list(check_count = FALSE), row_count_ok = TRUE,
     ref_suffix = "__reference", na_equal = TRUE
   )
+  # col_exists(a) + col_exists(b) + tolerance(a FAIL) + tolerance(b PASS)
   s <- summarize_coverage(cov)
-  expect_equal(s$n_checks, 2L)
-  expect_equal(s$n_pass, 1L)
+  expect_equal(s$n_checks, 4L)
+  expect_equal(s$n_pass, 3L)
   expect_equal(s$n_fail, 1L)
   expect_false(s$all_passed)
 })
@@ -170,9 +182,10 @@ cov_from <- function(tbl, tol_cols, eq_cols, missing = character(0),
 test_that("print shows an all-PASS roll-up when everything passes", {
   cov <- cov_from(data.frame(a__ok = c(TRUE, TRUE), b__ok = c(TRUE, TRUE)),
                   c("a", "b"), character(0))
+  # 2 col_exists + 2 tolerance, all passing
   out <- paste(capture.output(print(cov)), collapse = "\n")
-  expect_match(out, "2 checks")
-  expect_match(out, "2 PASS")
+  expect_match(out, "4 checks")
+  expect_match(out, "4 PASS")
   expect_match(out, "0 FAIL")
 })
 
@@ -188,7 +201,8 @@ test_that("print lists failing checks first when there are failures", {
 test_that("print handles an all-fail table", {
   cov <- cov_from(data.frame(a__ok = c(FALSE, FALSE)), "a", character(0))
   out <- paste(capture.output(print(cov)), collapse = "\n")
-  expect_match(out, "1 checks - 0 PASS, 1 FAIL")
+  # col_exists(a) passes, tolerance(a) fails
+  expect_match(out, "2 checks - 1 PASS, 1 FAIL")
 })
 
 test_that("print handles an empty coverage table without error", {
@@ -233,5 +247,7 @@ test_that("coverage summary verdict matches all_passed on a failing comparison",
   )
   expect_false(res$all_passed)
   expect_equal(res$summary$all_passed, res$all_passed)
-  expect_equal(res$coverage[res$coverage$column == "a", "status"], "FAIL")
+  cov <- res$coverage
+  expect_equal(cov[cov$column == "a" & cov$check == "tolerance", "status"], "FAIL")
+  expect_equal(cov[cov$column == "a" & cov$check == "col_exists", "status"], "PASS")
 })

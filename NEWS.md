@@ -1,3 +1,28 @@
+# datadiff 0.4.7
+
+## Bug fixes
+
+* The lazy HTML report now keeps the genuine failure detail. Printing
+  `result$reponse` (or calling `datadiff_report_html()`) on a failing
+  comparison again shows, for each failing column, the number of failing rows,
+  the offending cells, and the downloadable CSV extract - while still listing
+  every check performed, with the `col_exists` existence checks and the
+  `col_vals_equal` value checks presented as distinct steps. The report is now
+  built on top of the real interrogated agent (which holds the extracts) rather
+  than a counts-only synthesis, so nothing is lost.
+
+* `build_report_agent()` threads `warn_at` / `stop_at` so the report's
+  warn/stop colouring follows the supplied thresholds instead of hard-coded
+  values.
+
+## Documentation
+
+* Vignette and README document `coverage` / `summary` and the lazy report, and
+  are normalised to ASCII.
+* DESCRIPTION quotes software names ('pointblank', 'YAML') per CRAN convention,
+  clearing the "Possibly misspelled words" NOTE.
+* Internal helpers are marked `@noRd` (documentation kept in source, no `.Rd`).
+
 # datadiff 0.4.6
 
 ## New features

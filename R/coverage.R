@@ -47,6 +47,12 @@ build_coverage <- function(tbl, tol_cols, eq_cols,
     n_failed <<- c(n_failed, as.integer(nf))
   }
 
+  # Existence checks: every common (non-type-mismatch) column gets a col_exists
+  # check, distinct from its value check. These pass (the column is present in
+  # both datasets by construction), mirroring a full per-column pointblank run.
+  for (c in c(tol_cols, eq_cols)) {
+    add(c, "col_exists", 1L, 0L)
+  }
   for (c in tol_cols) {
     cnt <- tol_col_counts(tbl, col = c)
     add(c, "tolerance", cnt$n, cnt$n_failed)
