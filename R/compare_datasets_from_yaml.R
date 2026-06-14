@@ -448,8 +448,14 @@ compare_datasets_from_yaml <- function(data_reference,
   }, FUN.VALUE = logical(1))]
   tol_cols <- setdiff(tol_cols, type_mismatch_cols)
 
-  # Add tolerance columns
-  cmp <- add_tolerance_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
+  # Add the per-column within-tolerance booleans. Only the `<col>__ok` columns
+  # drive the verdict, so the local path materialises only those (fast path);
+  # the lazy path keeps add_tolerance_columns for now.
+  cmp <- if (is_non_local(cmp)) {
+    add_tolerance_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
+  } else {
+    add_ok_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
+  }
 
   # For lazy tables, pre-compute equality columns for non-tolerance columns.
   # pointblank's col_vals_equal(value = cmp[[col]]) cannot access SQL columns via [[,

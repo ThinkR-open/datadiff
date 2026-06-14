@@ -50,6 +50,56 @@ compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equa
   list(absdiff = absdiff, thresh = thresh, ok = ok)
 }
 
+#' Within-tolerance boolean for one column (hot path, ok only)
+#'
+#' Returns ONLY the boolean within-tolerance vector (not absdiff/thresh), with a
+#' fast path for the common case of a column with no NA/NaN/Inf: the dozen
+#' special-value passes of [compute_tolerance_col()] are skipped and the result
+#' reduces to `abs(cand - ref) <= thresh + fp`. Falls back to the full kernel
+#' (taking only its `$ok`) when special values are present, so the result is
+#' identical to `compute_tolerance_col(...)$ok` in every case.
+#'
+#' @inheritParams compute_tolerance_col
+#' @return Logical vector, the same as `compute_tolerance_col(...)$ok`.
+#' @noRd
+compute_tolerance_ok <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equal) {
+  if (!anyNA(cand_vals) && !anyNA(ref_vals) &&
+      all(is.finite(cand_vals)) && all(is.finite(ref_vals))) {
+    thresh <- abs_tol + rel_tol * abs(ref_vals)
+    fp     <- 8 * .Machine$double.eps * abs(ref_vals)
+    return(abs(cand_vals - ref_vals) <= thresh + fp)
+  }
+  compute_tolerance_col(cand_vals, ref_vals, abs_tol, rel_tol, na_equal)$ok
+}
+
+#' Add only the `<col>__ok` tolerance columns (hot path)
+#'
+#' Like [add_tolerance_columns()] but materialises only the boolean `<col>__ok`
+#' columns - which alone determine the verdict - in a single bind. The
+#' `<col>__absdiff` / `<col>__thresh` diagnostic columns are not produced (they
+#' are not read by any verdict logic nor surfaced in the failing-row extracts).
+#'
+#' @inheritParams add_tolerance_columns
+#' @return `cmp` with the `<col>__ok` columns appended.
+#' @noRd
+add_ok_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
+  if (length(tol_cols) == 0) {
+    return(cmp)
+  }
+  ok_cols <- vector("list", length(tol_cols))
+  for (i in seq_along(tol_cols)) {
+    c <- tol_cols[i]
+    ok_cols[[i]] <- compute_tolerance_ok(
+      cand_vals = cmp[[c]], ref_vals = cmp[[paste0(c, ref_suffix)]],
+      abs_tol = col_rules[[c]][["abs"]] %||% 0,
+      rel_tol = col_rules[[c]][["rel"]] %||% 0,
+      na_equal = na_equal
+    )
+  }
+  names(ok_cols) <- paste0(tol_cols, "__ok")
+  cbind(cmp, list2DF(ok_cols))
+}
+
 #' Add tolerance columns for numeric comparisons
 #'
 #' Creates additional columns in the comparison dataframe to handle numeric tolerance validation.
