@@ -123,7 +123,7 @@ by_type:
   logical:
     equal_mode: exact
 by_name:
-  id: []              # no override — inherits integer rule (abs: 0)
+  id: []              # no override - inherits integer rule (abs: 0)
   amount:
     abs: 0.01         # override: accept differences up to 0.01 for this column
     rel: 0
@@ -158,7 +158,7 @@ threshold  = abs + rel × |reference_value|
 result = OK  if  |candidate - reference| ≤ threshold
 ```
 
-The two parameters **add up**—they are not two independent guards.
+The two parameters **add up**-they are not two independent guards.
 
 | Parameter | Role | Default value |
 |-----------|------|---------------|
@@ -203,7 +203,7 @@ by_type:
 | 1 000 000.00 | 1 005 000.00 | 5 000 | 10 000 | OK |
 | 0.00 | 0.001 | 0.001 | **0** | **ERROR** (implicit division by zero) |
 
-> **Warning**: if the reference value is `0`, the relative threshold is `0`—any difference, even tiny, will be detected as an error.  
+> **Warning**: if the reference value is `0`, the relative threshold is `0`-any difference, even tiny, will be detected as an error.  
 > This is why `abs` acts as a safety floor.
 
 #### Mixed mode: when and how to use it
@@ -271,7 +271,7 @@ If `expected_count` is not specified, the reference dataset's row count is used 
 ## Comparing Parquet files (large datasets)
 
 `datadiff` can compare Parquet files that are too large to fit in RAM.
-The recommended approach uses `arrow::open_dataset()` — **do not call
+The recommended approach uses `arrow::open_dataset()` - **do not call
 `arrow::to_duckdb()` yourself** before passing to `datadiff`; the package
 handles the Arrow → DuckDB conversion internally with a single connection.
 
@@ -287,7 +287,7 @@ ds_cand <- arrow::open_dataset("path/to/candidate/")
 # Generate a rules template from the schema (no data loaded)
 write_rules_template(ds_ref, key = "ID", path = "rules.yaml")
 
-# Compare — stays lazy until the final boolean slim table
+# Compare - stays lazy until the final boolean slim table
 result <- compare_datasets_from_yaml(
   data_reference = ds_ref,
   data_candidate = ds_cand,
@@ -300,14 +300,14 @@ Internally, `compare_datasets_from_yaml()`:
 
 1. Opens a private DuckDB connection (`fresh_con`).
 2. Materialises each Parquet dataset as a DuckDB physical temp table via
-   `read_parquet()` — all memory is managed by DuckDB's buffer pool, so disk
+   `read_parquet()` - all memory is managed by DuckDB's buffer pool, so disk
    spilling works correctly.
 3. Runs the full join + 125 boolean expressions as a single lazy SQL query.
 4. `dplyr::compute()` materialises only the slim boolean result table
-   (~125 logical columns × N rows) — the wide source data is never loaded
+   (~125 logical columns × N rows) - the wide source data is never loaded
    into R.
 5. `dplyr::collect()` brings the slim boolean table (~few GB) into R and
-   passes a plain `data.frame` to pointblank — no live DuckDB connection
+   passes a plain `data.frame` to pointblank - no live DuckDB connection
    needed during interrogation.
 6. Disconnects and destroys `fresh_con` on exit.
 
@@ -324,7 +324,7 @@ result <- compare_datasets_from_yaml(
   data_candidate    = ds_cand,
   key               = "ID",
   path              = "rules.yaml",
-  duckdb_memory_limit = "8GB"   # default — safe for machines with >= 16 GB
+  duckdb_memory_limit = "8GB"   # default - safe for machines with >= 16 GB
 )
 ```
 
@@ -337,7 +337,7 @@ result <- compare_datasets_from_yaml(
 
 Increasing the limit reduces disk I/O and speeds up the comparison; decreasing
 it protects against OOM on memory-constrained machines. The limit only applies
-when Arrow datasets are used — it has no effect for `data.frame` or `tbl_lazy`
+when Arrow datasets are used - it has no effect for `data.frame` or `tbl_lazy`
 inputs.
 
 ### Strategy comparison
@@ -347,7 +347,7 @@ inputs.
 | **Arrow Dataset** ✅ recommended | `arrow::open_dataset()` | Slim boolean table only (~few GB) | arrow, duckdb |
 | Arrow Table | `arrow::read_parquet(as_data_frame=FALSE)` | Same as Arrow Dataset | arrow, duckdb |
 | Lazy table (dbplyr) | `tbl(con, "table_name")` | Slim boolean table only | DBI, dbplyr |
-| `data.frame` | `read.csv()`, `readr::read_csv()`, etc. | Full data in RAM | — |
+| `data.frame` | `read.csv()`, `readr::read_csv()`, etc. | Full data in RAM | - |
 
 ### What NOT to do
 
@@ -366,7 +366,7 @@ ref_df <- dplyr::collect(ds_ref)   # loads full 4 GB into R RAM
 
 DuckDB spills to `tempdir()` when the memory limit is reached. On Windows
 this is typically `C:\Users\<user>\AppData\Local\Temp`. Ensure that directory
-has sufficient free disk space (up to ~2–3× the size of your Parquet files
+has sufficient free disk space (up to ~2-3× the size of your Parquet files
 in the worst case).
 
 ## Main Functions

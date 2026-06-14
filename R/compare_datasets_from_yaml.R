@@ -518,7 +518,7 @@ compare_datasets_from_yaml <- function(data_reference,
     } else {
       row_count_ok <- abs(row_validation_info$cand_count - row_validation_info$ref_count) <= row_validation_info$tolerance
     }
-    # Add row_count_ok column via mutate — works for both local and lazy tables,
+    # Add row_count_ok column via mutate - works for both local and lazy tables,
     # and handles empty dataframes correctly (no nrow() guard needed).
     cmp <- dplyr::mutate(cmp, row_count_ok = !!row_count_ok)
   }
@@ -543,7 +543,7 @@ compare_datasets_from_yaml <- function(data_reference,
     # compute() sends CREATE TEMP TABLE AS SELECT … to DuckDB: all computation
     # (join, boolean expressions) happens inside DuckDB's process, with disk
     # spilling available for the large join.  We then collect() the slim boolean
-    # result into R so that pointblank receives a plain data.frame — avoiding
+    # result into R so that pointblank receives a plain data.frame - avoiding
     # DuckDB connection-state issues (is_tbl_mssql crash) during interrogation.
     cmp_slim_computed <- dplyr::compute(cmp_slim, name = tmp_tbl_name, temporary = TRUE)
     cmp_for_agent     <- dplyr::collect(cmp_slim_computed)
@@ -629,7 +629,8 @@ compare_datasets_from_yaml <- function(data_reference,
   # coverage, while remaining a real interrogated agent for all_passed() and
   # get_data_extracts().
   reponse <- as_datadiff_report(
-    reponse, coverage = coverage, label = label, lang = lang, locale = locale
+    reponse, coverage = coverage, label = label, lang = lang, locale = locale,
+    warn_at = warn_at, stop_at = stop_at
   )
 
   list(

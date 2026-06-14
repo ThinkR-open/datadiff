@@ -204,6 +204,7 @@ test_that("green comparison exposes a coverage listing every column as PASS", {
                     b = c(1, 2, 3, 4) * 2.0, txt = letters[1:4],
                     stringsAsFactors = FALSE)
   tmp <- tempfile(fileext = ".yml")
+  on.exit(unlink(tmp), add = TRUE)
   write_rules_template(ref, key = c("id", ".row"), numeric_abs = 0.101,
                        integer_abs = 0L, path = tmp)
   res <- suppressMessages(
@@ -224,6 +225,7 @@ test_that("coverage summary verdict matches all_passed on a failing comparison",
   cand <- ref
   cand$a[2] <- 99
   tmp <- tempfile(fileext = ".yml")
+  on.exit(unlink(tmp), add = TRUE)
   write_rules_template(ref, key = c("id", ".row"), numeric_abs = 0.101,
                        integer_abs = 0L, path = tmp)
   res <- suppressMessages(

@@ -10,7 +10,8 @@
 
 # Build a pointblank agent whose report mirrors the coverage table, populating
 # the interrogation result columns directly (no interrogate() scan).
-build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR") {
+build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
+                                warn_at = 1e-14, stop_at = 1e-14) {
   n <- nrow(coverage)
   dummy_ncol <- max(n, 1L)
   dummy <- as.data.frame(
@@ -20,7 +21,7 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR") {
 
   agent <- pointblank::create_agent(
     tbl = dummy, label = label,
-    actions = pointblank::action_levels(warn_at = 1e-14, stop_at = 1e-14),
+    actions = pointblank::action_levels(warn_at = warn_at, stop_at = stop_at),
     lang = lang, locale = locale
   )
   if (n == 0L) {
@@ -42,8 +43,8 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR") {
   vs$f_passed     <- ifelse(coverage$n > 0, n_passed / coverage$n, 1)
   vs$f_failed     <- ifelse(coverage$n > 0, coverage$n_failed / coverage$n, 0)
   vs$all_passed   <- coverage$n_failed == 0L
-  vs$warn         <- coverage$n_failed > 0L
-  vs$stop         <- coverage$n_failed > 0L
+  vs$warn         <- coverage$n_failed > 0L & vs$f_failed >= warn_at
+  vs$stop         <- coverage$n_failed > 0L & vs$f_failed >= stop_at
   vs$notify       <- rep(FALSE, n)
   agent$validation_set <- vs
   agent
@@ -52,11 +53,14 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR") {
 # Attach the lazy-report capability to a real interrogated agent: prefix the
 # class (print dispatches to print.datadiff_report) and stash what is needed to
 # render the full report, plus a (reference-semantics) environment for caching.
-as_datadiff_report <- function(reponse, coverage, label, lang, locale) {
+as_datadiff_report <- function(reponse, coverage, label, lang, locale,
+                               warn_at = 1e-14, stop_at = 1e-14) {
   attr(reponse, "datadiff_coverage") <- coverage
   attr(reponse, "datadiff_label")    <- label
   attr(reponse, "datadiff_lang")     <- lang
   attr(reponse, "datadiff_locale")   <- locale
+  attr(reponse, "datadiff_warn_at")  <- warn_at
+  attr(reponse, "datadiff_stop_at")  <- stop_at
   attr(reponse, "datadiff_render")   <- new.env(parent = emptyenv())
   class(reponse) <- c("datadiff_report", class(reponse))
   reponse
@@ -74,7 +78,9 @@ datadiff_render_report <- function(x) {
         coverage = attr(x, "datadiff_coverage"),
         label    = attr(x, "datadiff_label") %||% "datadiff report",
         lang     = attr(x, "datadiff_lang") %||% "fr",
-        locale   = attr(x, "datadiff_locale") %||% "fr_FR"
+        locale   = attr(x, "datadiff_locale") %||% "fr_FR",
+        warn_at  = attr(x, "datadiff_warn_at") %||% 1e-14,
+        stop_at  = attr(x, "datadiff_stop_at") %||% 1e-14
       )
     )
   }
@@ -122,13 +128,13 @@ datadiff_report_html <- function(res, file = NULL) {
     coverage = coverage,
     label    = attr(reponse, "datadiff_label") %||% "datadiff report",
     lang     = attr(reponse, "datadiff_lang") %||% "fr",
-    locale   = attr(reponse, "datadiff_locale") %||% "fr_FR"
+    locale   = attr(reponse, "datadiff_locale") %||% "fr_FR",
+    warn_at  = attr(reponse, "datadiff_warn_at") %||% 1e-14,
+    stop_at  = attr(reponse, "datadiff_stop_at") %||% 1e-14
   )
+  report <- pointblank::get_agent_report(agent)
   if (!is.null(file)) {
-    pointblank::export_report(
-      pointblank::get_agent_report(agent),
-      filename = file, quiet = TRUE
-    )
+    pointblank::export_report(report, filename = file, quiet = TRUE)
   }
-  invisible(pointblank::get_agent_report(agent))
+  invisible(report)
 }

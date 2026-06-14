@@ -79,7 +79,7 @@ build_coverage <- function(tbl, tol_cols, eq_cols,
 
 #' Aggregate counts from a coverage table
 #'
-#' @param coverage A `datadiff_coverage` data.frame from [build_coverage()].
+#' @param coverage A `datadiff_coverage` data.frame from `build_coverage()`.
 #' @return A list with `n_checks`, `n_pass`, `n_fail`, `n_rows_failed_total`,
 #'   `all_passed`.
 #' @noRd

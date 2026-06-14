@@ -73,7 +73,7 @@
   `cand - ref` can exceed the threshold by a few ULPs (e.g.
   `100.01 - 100.00 = 0.0100000000000051 > 0.01` in double precision),
   causing a false validation failure. Fixed by adding a correction of
-  `8 * .Machine$double.eps * |ref|` to the threshold before comparing — a
+  `8 * .Machine$double.eps * |ref|` to the threshold before comparing - a
   value proportional to the operand magnitude that absorbs floating-point
   representation error without meaningfully widening the user-specified
   tolerance. The correction is applied in both the local data.frame path
@@ -137,7 +137,7 @@
     metadata of the lazy table and received `character(0)`, which propagated to
     `if(logical(0))`. Fixed by `collect()`-ing the slim boolean table (~125
     logical columns) after `compute()` so that pointblank receives a plain
-    `data.frame` — no live DuckDB connection required during interrogation.
+    `data.frame` - no live DuckDB connection required during interrogation.
 
 ## New parameters
 
@@ -158,7 +158,7 @@
   Key design decisions:
   - Arrow objects are converted to DuckDB-backed lazy tables via
     `arrow::to_duckdb()` before pointblank validation, keeping the entire
-    pipeline lazy. No full `collect()` is performed — even very large
+    pipeline lazy. No full `collect()` is performed - even very large
     Parquet files that don't fit in RAM can be validated.
   - Tolerance columns (`__ok`), equality columns (`__eq`), and text
     preprocessing are computed via `dplyr::mutate()` on the Arrow side

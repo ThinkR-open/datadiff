@@ -16,6 +16,7 @@ mk_ref <- function() {
 
 run <- function(ref, cand) {
   tmp <- tempfile(fileext = ".yml")
+  on.exit(unlink(tmp), add = TRUE)
   write_rules_template(ref, key = KEYR, numeric_abs = 0.101,
                        integer_abs = 0L, path = tmp)
   suppressMessages(
@@ -39,6 +40,34 @@ test_that("build_report_agent produces one validation step per coverage row", {
   expect_equal(nrow(ag$validation_set), nrow(cov))
   # injected counts are consistent with the coverage table
   expect_equal(ag$validation_set$n_passed, cov$n - cov$n_failed)
+})
+
+test_that("build_report_agent warn/stop honour the supplied thresholds", {
+  # column b fails 1 of 2 rows -> f_failed = 0.5.
+  cov <- build_coverage(
+    tbl = data.frame(a__ok = c(TRUE, TRUE), b__ok = c(TRUE, FALSE)),
+    tol_cols = c("a", "b"), eq_cols = character(0),
+    missing_in_candidate = character(0), type_mismatch_cols = character(0),
+    row_validation_info = list(check_count = FALSE), row_count_ok = TRUE,
+    ref_suffix = "__reference", na_equal = TRUE
+  )
+  b_row <- which(vapply(cov$column, identical, logical(1), "b"))
+
+  # Thresholds ABOVE the fraction: column b should stay green.
+  ag_loose <- build_report_agent(
+    cov, label = "L", lang = "en", locale = "en_US",
+    warn_at = 0.6, stop_at = 0.8
+  )
+  expect_false(ag_loose$validation_set$warn[b_row])
+  expect_false(ag_loose$validation_set$stop[b_row])
+
+  # Thresholds BELOW the fraction: column b should warn and stop.
+  ag_tight <- build_report_agent(
+    cov, label = "L", lang = "en", locale = "en_US",
+    warn_at = 0.4, stop_at = 0.45
+  )
+  expect_true(ag_tight$validation_set$warn[b_row])
+  expect_true(ag_tight$validation_set$stop[b_row])
 })
 
 test_that("get_agent_report renders the injected agent without error", {
@@ -104,6 +133,7 @@ test_that("the rendered report is memoized after first print", {
 test_that("datadiff_report_html writes a non-empty HTML file", {
   res <- run(mk_ref(), mk_ref())
   tmp <- tempfile(fileext = ".html")
+  on.exit(unlink(tmp), add = TRUE)
   datadiff_report_html(res, file = tmp)
   expect_true(file.exists(tmp))
   expect_gt(file.info(tmp)$size, 0)
@@ -120,6 +150,7 @@ test_that("lazy comparison also yields a printable datadiff_report", {
   duckdb::dbWriteTable(con, "ref", ref)
   duckdb::dbWriteTable(con, "cand", ref)
   tmp <- tempfile(fileext = ".yml")
+  on.exit(unlink(tmp), add = TRUE)
   write_rules_template(ref, key = KEYR, numeric_abs = 0.101,
                        integer_abs = 0L, path = tmp)
   res <- suppressMessages(compare_datasets_from_yaml(
