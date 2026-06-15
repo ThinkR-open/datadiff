@@ -140,21 +140,25 @@ add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix, na_
     }
   }
 
-  exprs <- character(0)
-  for (c in tol_cols) {
-    cc <- q(c); rc <- q(paste0(c, ref_suffix))
+  tol_exprs <- vapply(X = tol_cols, FUN = function(c) {
+    cc <- q(c)
+    rc <- q(paste0(c, ref_suffix))
     at <- col_rules[[c]][["abs"]] %||% 0
     rt <- col_rules[[c]][["rel"]] %||% 0
     within <- sprintf("ABS(%s - %s) <= (%s + %s * ABS(%s)) + %s * ABS(%s)",
                       cc, rc, num(at), num(rt), rc, num(fp_eps), rc)
-    exprs <- c(exprs, sprintf("%s AS %s", case_bool(cc, rc, within), q(paste0(c, "__ok"))))
-  }
-  for (c in eq_cols) {
-    cc <- q(c); rc <- q(paste0(c, ref_suffix))
-    exprs <- c(exprs, sprintf("%s AS %s",
-                              case_bool(cc, rc, sprintf("%s = %s", cc, rc)),
-                              q(paste0(c, "__eq"))))
-  }
+    sprintf("%s AS %s", case_bool(cc, rc, within), q(paste0(c, "__ok")))
+  }, FUN.VALUE = character(1), USE.NAMES = FALSE)
+
+  eq_exprs <- vapply(X = eq_cols, FUN = function(c) {
+    cc <- q(c)
+    rc <- q(paste0(c, ref_suffix))
+    sprintf("%s AS %s",
+            case_bool(cc, rc, sprintf("%s = %s", cc, rc)),
+            q(paste0(c, "__eq")))
+  }, FUN.VALUE = character(1), USE.NAMES = FALSE)
+
+  exprs <- c(tol_exprs, eq_exprs)
 
   select_sql <- sprintf("SELECT *, %s FROM (%s) AS %s",
                         paste(exprs, collapse = ", "), sub, q("datadiff_bool"))
