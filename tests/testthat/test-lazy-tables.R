@@ -354,6 +354,40 @@ by_type:
   expect_false(result$all_passed)
 })
 
+# ---- type mismatch on lazy (regression) ------------------------------------
+
+duckdb_con <- function() {
+  skip_if_not_installed("DBI")
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  DBI::dbConnect(duckdb::duckdb())
+}
+
+test_that("lazy: type-mismatched non-coercible column reports a failure without crashing", {
+  con <- duckdb_con()
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  # Reference numeric, candidate character with values that cannot be cast to
+  # DOUBLE. On a strict-typed backend (DuckDB) the equality SQL would error
+  # ("Could not convert string 'apple' to DOUBLE") if the __eq column were built
+  # for the mismatched column. The verdict must instead report the type
+  # mismatch as a validation failure, exactly as the local path does.
+  ref  <- data.frame(id = 1L:3L, val = c(1.0, 2.0, 3.0))
+  cand <- data.frame(id = 1L:3L, val = c("apple", "pear", "kiwi"), stringsAsFactors = FALSE)
+
+  result <- expect_no_error(
+    suppressWarnings(
+      compare_datasets_from_yaml(
+        as_lazy(ref, con, "ref"),
+        as_lazy(cand, con, "cand"),
+        key = "id"
+      )
+    )
+  )
+
+  expect_false(result$all_passed)
+})
+
 # ---- NA handling (na_equal = TRUE) -----------------------------------------
 
 test_that("lazy: NA values match when na_equal = TRUE (numeric)", {

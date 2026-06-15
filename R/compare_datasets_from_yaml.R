@@ -448,6 +448,15 @@ compare_datasets_from_yaml <- function(data_reference,
   }, FUN.VALUE = logical(1))]
   tol_cols <- setdiff(tol_cols, type_mismatch_cols)
 
+  # Equality columns the verdict actually checks: common, non-key, non-tolerance
+  # AND non-type-mismatched. Derived once and threaded to both the __eq producer
+  # and the verdict consumer so the two sets cannot drift. Type-mismatched
+  # columns are excluded here because the equality SQL would compare incompatible
+  # types and crash the lazy path (e.g. casting a character candidate to the
+  # numeric reference's type); they are reported as failing validation steps
+  # instead.
+  eq_cols <- setdiff(setdiff(common_cols, type_mismatch_cols), tol_cols)
+
   # Add the per-column within-tolerance (__ok) and, on the lazy path, equality
   # (__eq) booleans - the only columns that drive the verdict.
   #  - Local: materialise only __ok via a vectorised fast path (__eq is
@@ -457,7 +466,7 @@ compare_datasets_from_yaml <- function(data_reference,
   #    construction + SQL rendering), the dominant cost on wide tables; the
   #    templated SQL is O(1) dbplyr work and lets the database do the rest.
   cmp <- if (is_non_local(cmp)) {
-    add_bool_cols_sql(cmp, tol_cols, setdiff(common_cols, tol_cols),
+    add_bool_cols_sql(cmp, tol_cols, eq_cols,
                       col_rules, ref_suffix, na_equal)
   } else {
     add_ok_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
@@ -487,10 +496,9 @@ compare_datasets_from_yaml <- function(data_reference,
   is_lazy <- is_non_local(cmp)
   cmp_for_agent <- cmp
   if (is_lazy) {
-    eq_cols_lazy <- setdiff(common_cols, tol_cols)
     val_cols <- c(
       paste0(tol_cols, "__ok"),
-      paste0(eq_cols_lazy, "__eq"),
+      paste0(eq_cols, "__eq"),
       if (isTRUE(row_validation_info$check_count)) "row_count_ok" else character(0)
     )
     cmp_slim      <- dplyr::select(cmp, dplyr::any_of(val_cols))
@@ -512,13 +520,12 @@ compare_datasets_from_yaml <- function(data_reference,
   # cost trivially-passing agent. all_passed stays identical and
   # get_data_extracts() is empty either way. Any failure falls through to the
   # full per-column agent so failing cells remain extractable byte-for-byte.
-  eq_cols_for_check <- setdiff(setdiff(common_cols, type_mismatch_cols), tol_cols)
   all_passed_fast <-
     length(missing_in_candidate) == 0 &&
     length(type_mismatch_cols) == 0 &&
     isTRUE(row_count_ok) &&
     all_validations_pass(
-      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
       ref_suffix = ref_suffix, na_equal = na_equal
     )
 
@@ -527,7 +534,7 @@ compare_datasets_from_yaml <- function(data_reference,
   # caller can see what was verified even when the fast path skips the per-column
   # pointblank agent.
   coverage <- build_coverage(
-    tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+    tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
     missing_in_candidate = missing_in_candidate,
     type_mismatch_cols = type_mismatch_cols,
     row_validation_info = row_validation_info, row_count_ok = row_count_ok,
@@ -547,7 +554,7 @@ compare_datasets_from_yaml <- function(data_reference,
     # (which only ever pass) are dropped for the same reason. Structural
     # failures (missing columns, type mismatches, row count) are always kept.
     fail <- failing_columns(
-      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
       ref_suffix = ref_suffix, na_equal = na_equal
     )
     agent <- setup_pointblank_agent(
