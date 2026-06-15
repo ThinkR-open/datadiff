@@ -313,56 +313,31 @@ compare_datasets_from_yaml <- function(data_reference,
 
   # Check for duplicate keys (only if key exists in both datasets)
   if (!is.null(key) && all(key %in% get_col_names(data_reference)) && all(key %in% get_col_names(data_candidate))) {
-    # Use SQL-native GROUP BY + COUNT to find duplicate key values (works for both
-    # local data.frames and lazy tables without bracket-subsetting).
-    ref_dups <- data_reference %>%
-      dplyr::count(dplyr::across(dplyr::all_of(key))) %>%
-      dplyr::filter(n > 1L) %>%
-      dplyr::collect()
+    # Detect duplicate key values. Local data.frames use a fast
+    # anyDuplicated()/duplicated() pass; lazy tables keep the SQL-native count.
+    ref_dup_info  <- find_duplicate_keys(data_reference, key)
+    cand_dup_info <- find_duplicate_keys(data_candidate, key)
 
-    cand_dups <- data_candidate %>%
-      dplyr::count(dplyr::across(dplyr::all_of(key))) %>%
-      dplyr::filter(n > 1L) %>%
-      dplyr::collect()
-
-    ref_has_dups <- nrow(ref_dups) > 0
-    cand_has_dups <- nrow(cand_dups) > 0
+    ref_has_dups  <- !is.null(ref_dup_info)
+    cand_has_dups <- !is.null(cand_dup_info)
 
     if (ref_has_dups || cand_has_dups) {
       # Build detailed warning message
       warning_parts <- c()
 
       if (ref_has_dups) {
-        n_dup_keys_ref <- nrow(ref_dups)
-        n_dup_rows_ref <- sum(ref_dups$n)
-        key_cols_ref <- ref_dups[, key, drop = FALSE]
-
-        examples_ref <- if (n_dup_keys_ref <= 3) {
-          apply(key_cols_ref, 1, function(r) { paste(key, "=", r, collapse = ", ") })
-        } else {
-          c(apply(key_cols_ref[1:3, , drop = FALSE], 1, function(r) { paste(key, "=", r, collapse = ", ") }), "...")
-        }
-
         warning_parts <- c(warning_parts, sprintf(
           "data_reference: %d duplicate key value(s) affecting %d rows (examples: %s)",
-          n_dup_keys_ref, n_dup_rows_ref, paste(examples_ref, collapse = "; ")
+          ref_dup_info$n_dup_keys, ref_dup_info$n_dup_rows,
+          paste(ref_dup_info$examples, collapse = "; ")
         ))
       }
 
       if (cand_has_dups) {
-        n_dup_keys_cand <- nrow(cand_dups)
-        n_dup_rows_cand <- sum(cand_dups$n)
-        key_cols_cand <- cand_dups[, key, drop = FALSE]
-
-        examples_cand <- if (n_dup_keys_cand <= 3) {
-          apply(key_cols_cand, 1, function(r) { paste(key, "=", r, collapse = ", ") })
-        } else {
-          c(apply(key_cols_cand[1:3, , drop = FALSE], 1, function(r) { paste(key, "=", r, collapse = ", ") }), "...")
-        }
-
         warning_parts <- c(warning_parts, sprintf(
           "data_candidate: %d duplicate key value(s) affecting %d rows (examples: %s)",
-          n_dup_keys_cand, n_dup_rows_cand, paste(examples_cand, collapse = "; ")
+          cand_dup_info$n_dup_keys, cand_dup_info$n_dup_rows,
+          paste(cand_dup_info$examples, collapse = "; ")
         ))
       }
 
@@ -473,39 +448,28 @@ compare_datasets_from_yaml <- function(data_reference,
   }, FUN.VALUE = logical(1))]
   tol_cols <- setdiff(tol_cols, type_mismatch_cols)
 
-  # Add tolerance columns
-  cmp <- add_tolerance_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
+  # Equality columns the verdict actually checks: common, non-key, non-tolerance
+  # AND non-type-mismatched. Derived once and threaded to both the __eq producer
+  # and the verdict consumer so the two sets cannot drift. Type-mismatched
+  # columns are excluded here because the equality SQL would compare incompatible
+  # types and crash the lazy path (e.g. casting a character candidate to the
+  # numeric reference's type); they are reported as failing validation steps
+  # instead.
+  eq_cols <- setdiff(setdiff(common_cols, type_mismatch_cols), tol_cols)
 
-  # For lazy tables, pre-compute equality columns for non-tolerance columns.
-  # pointblank's col_vals_equal(value = cmp[[col]]) cannot access SQL columns via [[,
-  # so we compute c__eq as a boolean SQL column and validate that against TRUE.
-  # All columns are batched into a single mutate() to prevent O(n) nested
-  # lazy_query nodes that would exceed R's expression evaluation stack limit.
-  if (is_non_local(cmp)) {
-    eq_cols_lazy <- setdiff(common_cols, tol_cols)
-    exprs_eq <- list()
-    for (c in eq_cols_lazy) {
-      c_sym     <- dplyr::sym(c)
-      rc_sym    <- dplyr::sym(paste0(c, ref_suffix))
-      eq_col_nm <- paste0(c, "__eq")
-      if (na_equal) {
-        exprs_eq[[eq_col_nm]] <- rlang::expr(dplyr::case_when(
-          is.na(!!c_sym) & is.na(!!rc_sym) ~ TRUE,
-          is.na(!!c_sym) | is.na(!!rc_sym) ~ FALSE,
-          !!c_sym == !!rc_sym              ~ TRUE,
-          .default = FALSE
-        ))
-      } else {
-        exprs_eq[[eq_col_nm]] <- rlang::expr(dplyr::case_when(
-          is.na(!!c_sym) | is.na(!!rc_sym) ~ FALSE,
-          !!c_sym == !!rc_sym              ~ TRUE,
-          .default = FALSE
-        ))
-      }
-    }
-    if (length(exprs_eq) > 0) {
-      cmp <- dplyr::mutate(cmp, !!!exprs_eq)
-    }
+  # Add the per-column within-tolerance (__ok) and, on the lazy path, equality
+  # (__eq) booleans - the only columns that drive the verdict.
+  #  - Local: materialise only __ok via a vectorised fast path (__eq is
+  #    recomputed on the fly where needed).
+  #  - Lazy: build __ok AND __eq in a SINGLE templated SQL SELECT. Doing this
+  #    with per-column dplyr::mutate() is O(columns) on the R side (dbplyr query
+  #    construction + SQL rendering), the dominant cost on wide tables; the
+  #    templated SQL is O(1) dbplyr work and lets the database do the rest.
+  cmp <- if (is_non_local(cmp)) {
+    add_bool_cols_sql(cmp, tol_cols, eq_cols,
+                      col_rules, ref_suffix, na_equal)
+  } else {
+    add_ok_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
   }
 
   # Add row count validation column if needed
@@ -532,10 +496,9 @@ compare_datasets_from_yaml <- function(data_reference,
   is_lazy <- is_non_local(cmp)
   cmp_for_agent <- cmp
   if (is_lazy) {
-    eq_cols_lazy <- setdiff(common_cols, tol_cols)
     val_cols <- c(
       paste0(tol_cols, "__ok"),
-      paste0(eq_cols_lazy, "__eq"),
+      paste0(eq_cols, "__eq"),
       if (isTRUE(row_validation_info$check_count)) "row_count_ok" else character(0)
     )
     cmp_slim      <- dplyr::select(cmp, dplyr::any_of(val_cols))
@@ -557,13 +520,12 @@ compare_datasets_from_yaml <- function(data_reference,
   # cost trivially-passing agent. all_passed stays identical and
   # get_data_extracts() is empty either way. Any failure falls through to the
   # full per-column agent so failing cells remain extractable byte-for-byte.
-  eq_cols_for_check <- setdiff(setdiff(common_cols, type_mismatch_cols), tol_cols)
   all_passed_fast <-
     length(missing_in_candidate) == 0 &&
     length(type_mismatch_cols) == 0 &&
     isTRUE(row_count_ok) &&
     all_validations_pass(
-      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
       ref_suffix = ref_suffix, na_equal = na_equal
     )
 
@@ -572,7 +534,7 @@ compare_datasets_from_yaml <- function(data_reference,
   # caller can see what was verified even when the fast path skips the per-column
   # pointblank agent.
   coverage <- build_coverage(
-    tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+    tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
     missing_in_candidate = missing_in_candidate,
     type_mismatch_cols = type_mismatch_cols,
     row_validation_info = row_validation_info, row_count_ok = row_count_ok,
@@ -592,7 +554,7 @@ compare_datasets_from_yaml <- function(data_reference,
     # (which only ever pass) are dropped for the same reason. Structural
     # failures (missing columns, type mismatches, row count) are always kept.
     fail <- failing_columns(
-      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols_for_check,
+      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
       ref_suffix = ref_suffix, na_equal = na_equal
     )
     agent <- setup_pointblank_agent(

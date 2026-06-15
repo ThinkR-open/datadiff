@@ -1,3 +1,24 @@
+# datadiff 0.4.8
+
+## Performance
+
+* `compare_datasets_from_yaml()` is much faster on **wide** tables, including
+  all-pass (green) comparisons - the nominal case of non-regression suites.
+  Measured on 300 numeric columns x 200 000 identical rows: the in-memory
+  (data.frame) path drops from ~13.8 s to ~5.2 s, and the lazy (DuckDB) path
+  from ~64.5 s to ~9.8 s. The verdict (`all_passed`) and the extractable failing
+  cells are unchanged. Three levers (issue #4):
+  - **Duplicate-key check** on local data.frames now uses `anyDuplicated()` /
+    `duplicated()` (a single hashed pass) instead of `dplyr::count()` /
+    `group_by()`; lazy tables keep the SQL-native count. Same warning message.
+  - **Tolerance arithmetic** on the local path computes only the `<col>__ok`
+    booleans, with a fast path that skips the special-value handling when a
+    column has no `NA`/`NaN`/`Inf`.
+  - **Lazy path** builds the `<col>__ok` / `<col>__eq` booleans in a single
+    templated SQL `SELECT` instead of one `dplyr::mutate()` expression per
+    column, eliminating the dbplyr query-construction cost that dominated wide
+    lazy comparisons (verified equivalent on DuckDB and SQLite).
+
 # datadiff 0.4.7
 
 ## Bug fixes
