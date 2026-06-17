@@ -209,6 +209,123 @@ test_that("get_agent_report renders the injected agent without error", {
   expect_s3_class(gt_rep, "gt_tbl")
 })
 
+# --- regression guard for the "mark as interrogated" hack -------------------
+#
+# The all-green report takes build_report_agent's synthetic count-only branch.
+# pointblank fills the EVAL / UNITS / PASS columns of the rendered report ONLY
+# for an agent it considers interrogated (pointblank::get_agent_report() gates
+# on an internal `has_agent_intel()` that tests `inherits(agent, "has_intel")`);
+# a non-interrogated agent renders as a bare "No Interrogation Performed" plan
+# with those columns blank. We avoid the O(columns) real interrogation and just
+# stamp the markers (the "has_intel" class + timestamps) in mark_agent_interrogated().
+#
+# These tests fail loudly if a future pointblank release changes that contract -
+# renames the marker class, changes the banner text, or stops reading our
+# injected counts - so the hack cannot rot silently across upgrades.
+
+test_that("pointblank's interrogated-agent contract still holds (marker class + banner)", {
+  # If pointblank renames "has_intel" or its banner, the synthetic report stops
+  # rendering counts; pin both so the breakage is attributed here, not blamed on
+  # datadiff. Built from a genuine interrogation so it tracks the real contract.
+  agent <- pointblank::create_agent(tbl = data.frame(x = TRUE)) %>%
+    pointblank::col_vals_equal(columns = "x", value = TRUE) %>%
+    pointblank::interrogate()
+
+  # The marker class our hack relies on, asserted against a real interrogation.
+  expect_true(inherits(agent, "has_intel"))
+  expect_true(exists("has_agent_intel", where = asNamespace("pointblank")))
+  expect_true(pointblank:::has_agent_intel(agent))
+
+  # A NON-interrogated agent must still produce the banner we test against below;
+  # if pointblank drops/renames it, the HTML assertions are no longer meaningful.
+  skip_if_not_installed("gt")
+  plan <- pointblank::create_agent(tbl = data.frame(x = TRUE)) %>%
+    pointblank::col_vals_equal(columns = "x", value = TRUE)
+  plan_html <- as.character(gt::as_raw_html(
+    pointblank::get_agent_report(plan, display_table = TRUE)
+  ))
+  expect_true(grepl("No Interrogation Performed", plan_html))
+})
+
+test_that("all-pass synthetic report renders as interrogated (units not blank in HTML)", {
+  skip_if_not_installed("gt")
+  cov <- build_coverage(
+    tbl = data.frame(a__ok = rep(TRUE, 3L), b__ok = rep(TRUE, 3L)),
+    tol_cols = c("a", "b"), eq_cols = character(0),
+    missing_in_candidate = character(0), type_mismatch_cols = character(0),
+    row_validation_info = list(check_count = FALSE), row_count_ok = TRUE,
+    ref_suffix = "__reference", na_equal = TRUE
+  )
+  ag <- build_report_agent(cov, label = "L", lang = "en", locale = "en_US")
+
+  # The agent must carry the interrogated markers our hack injects.
+  expect_true(inherits(ag, "has_intel"))
+  expect_false(is.null(ag$time_start))
+
+  # The rendered HTML must be a real report, not the empty "plan" view.
+  html <- as.character(gt::as_raw_html(
+    pointblank::get_agent_report(ag, display_table = TRUE)
+  ))
+  expect_false(grepl("No Interrogation Performed", html))
+
+  # The injected per-check counts survive into the rendered report.
+  rep <- pointblank::get_agent_report(ag, display_table = FALSE)
+  tol_rows <- which(cov$check == "tolerance")
+  expect_false(anyNA(rep$units))
+  expect_equal(as.integer(rep$units[tol_rows]), as.integer(cov$n[tol_rows]))
+  expect_equal(as.integer(rep$n_pass[tol_rows]),
+               as.integer(cov$n[tol_rows] - cov$n_failed[tol_rows]))
+})
+
+test_that("end-to-end: all-pass comparison HTML report shows row counts (both paths)", {
+  # Faithful reproduction of the user-visible symptom on both compute paths: the
+  # rendered HTML for an all-green run must show the evaluated row counts, not a
+  # blank "No Interrogation Performed" plan.
+  skip_if_not_installed("gt")
+  ref <- data.frame(id = 1:50, a = as.numeric(1:50), b = as.numeric(1:50))
+  rules <- tempfile(fileext = ".yml")
+  on.exit(unlink(rules), add = TRUE)
+  write_rules_template(ref, key = "id", path = rules, numeric_abs = 0.001)
+
+  # The "no interrogation" banner is localised; datadiff_report_html defaults to
+  # lang = "fr", so grepping only the English string would silently pass against
+  # buggy output. Assert against every localisation of the banner pointblank
+  # ships, so the guard is locale-robust.
+  banners <- unlist(
+    pointblank:::get_lsv("agent_report/no_interrogation_performed_text"),
+    use.names = FALSE
+  )
+  has_banner <- function(res) {
+    f <- tempfile(fileext = ".html")
+    on.exit(unlink(f), add = TRUE)
+    datadiff_report_html(res, file = f)
+    html <- paste(readLines(f, warn = FALSE), collapse = "\n")
+    any(vapply(banners, function(b) {
+      grepl(b, html, fixed = TRUE)
+    }, logical(1)))
+  }
+
+  # RAM (local data.frame) path.
+  res_ram <- suppressMessages(
+    compare_datasets_from_yaml(ref, ref, key = "id", path = rules)
+  )
+  expect_true(res_ram$all_passed)
+  expect_false(has_banner(res_ram))
+
+  # Lazy (DuckDB) path.
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  DBI::dbWriteTable(con, "ref", ref, overwrite = TRUE)
+  lref <- dplyr::tbl(con, "ref")
+  res_lazy <- suppressMessages(
+    compare_datasets_from_yaml(lref, lref, key = "id", path = rules)
+  )
+  expect_true(res_lazy$all_passed)
+  expect_false(has_banner(res_lazy))
+})
+
 # --- API compatibility: res$reponse stays a usable agent --------------------
 
 test_that("green res$reponse is a datadiff_report that is still a usable agent", {
