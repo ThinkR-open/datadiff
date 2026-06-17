@@ -37,6 +37,7 @@ VignetteBuilder: knitr
 URL: https://github.com/ThinkR-open/datadiff
 BugReports: https://github.com/ThinkR-open/datadiff/issues
 Encoding: UTF-8
+Language: en-US
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Config/testthat/edition: 3
