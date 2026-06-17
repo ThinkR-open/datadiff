@@ -245,7 +245,7 @@ compare_datasets_from_yaml <- function(data_reference,
   #
   # With arrow::to_duckdb(), Arrow allocates read buffers OUTSIDE DuckDB's
   # memory manager.  Combined Arrow + DuckDB memory can exceed physical RAM
-  # before DuckDB's spilling threshold is reached → OOM.  Native read_parquet()
+  # before DuckDB's spilling threshold is reached -> OOM.  Native read_parquet()
   # eliminates this external allocation.
   if (is_arrow(data_reference) || is_arrow(data_candidate)) {
     fresh_con <- duckdb::dbConnect(duckdb::duckdb())
@@ -503,7 +503,7 @@ compare_datasets_from_yaml <- function(data_reference,
     )
     cmp_slim      <- dplyr::select(cmp, dplyr::any_of(val_cols))
     tmp_tbl_name  <- paste0("datadiff_", gsub("[^0-9]", "", format(Sys.time(), "%H%M%OS3")))
-    # compute() sends CREATE TEMP TABLE AS SELECT … to DuckDB: all computation
+    # compute() sends CREATE TEMP TABLE AS SELECT ... to DuckDB: all computation
     # (join, boolean expressions) happens inside DuckDB's process, with disk
     # spilling available for the large join.  We then collect() the slim boolean
     # result into R so that pointblank receives a plain data.frame - avoiding

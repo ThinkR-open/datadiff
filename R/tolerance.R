@@ -54,7 +54,7 @@ compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equa
 #'
 #' Returns ONLY the boolean within-tolerance vector (not absdiff/thresh), with a
 #' fast path for the common case of a column with no NA/NaN/Inf: the dozen
-#' special-value passes of [compute_tolerance_col()] are skipped and the result
+#' special-value passes of `compute_tolerance_col()` are skipped and the result
 #' reduces to `abs(cand - ref) <= thresh + fp`. Falls back to the full kernel
 #' (taking only its `$ok`) when special values are present, so the result is
 #' identical to `compute_tolerance_col(...)$ok` in every case.
