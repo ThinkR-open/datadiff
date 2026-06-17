@@ -27,6 +27,7 @@ Suggests:
     DBI,
     dbplyr,
     duckdb,
+    gt,
     knitr,
     rmarkdown,
     RSQLite,
