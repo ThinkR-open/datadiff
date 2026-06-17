@@ -120,29 +120,28 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
     return(real_agent)
   }
 
-  # No real agent: synthetic count-only report.
-  dummy_ncol <- max(n, 1L)
-  dummy <- as.data.frame(
-    matrix(TRUE, nrow = 1L, ncol = dummy_ncol)
-  )
-  names(dummy) <- paste0("col", seq_len(dummy_ncol))
-
+  # No real agent: synthetic count-only report. Build a single-step agent and
+  # replicate its validation-set row once per coverage entry - O(rows) of cheap
+  # data-frame work - rather than expanding col_vals_equal() over N columns,
+  # which is O(N) of costly pointblank step construction (measured ~51 s for
+  # 1448 columns versus ~0.03 s here).
+  dummy <- data.frame(.datadiff_pass = TRUE)
   agent <- pointblank::create_agent(
     tbl = dummy, label = label,
     actions = pointblank::action_levels(warn_at = warn_at, stop_at = stop_at),
     lang = lang, locale = locale
-  )
+  ) %>%
+    pointblank::col_vals_equal(columns = ".datadiff_pass", value = TRUE)
   if (n == 0L) {
     return(agent)
   }
 
-  agent <- agent %>%
-    pointblank::col_vals_equal(columns = tidyselect::everything(), value = TRUE)
-
-  vs <- agent$validation_set
+  vs <- agent$validation_set[rep(1L, n), , drop = FALSE]
+  vs$i <- seq_len(n)
   n_passed <- coverage$n - coverage$n_failed
   vs$column       <- as.list(coverage$column)
   vs$label        <- coverage$check
+  vs$eval_active  <- rep(TRUE, n)
   vs$eval_error   <- rep(FALSE, n)
   vs$eval_warning <- rep(FALSE, n)
   vs$n            <- as.numeric(coverage$n)
@@ -157,6 +156,23 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
   vs$assertion_type <- ifelse(coverage$check == "col_exists",
                               "col_exists", "col_vals_equal")
   agent$validation_set <- vs
+  mark_agent_interrogated(agent)
+}
+
+# Mark an agent as interrogated WITHOUT running the (O(columns)) interrogation.
+# pointblank's get_agent_report() fills the EVAL / UNITS / PASS columns only when
+# has_agent_intel() is TRUE, i.e. when the agent carries the "has_intel" class; a
+# bare plan renders those columns empty under a "No Interrogation Performed"
+# banner. Since we inject the verdict counts ourselves, we only need the
+# interrogated *markers* - the class and the interrogation timestamps - not the
+# (expensive, and here redundant) interrogation itself.
+mark_agent_interrogated <- function(agent) {
+  now <- Sys.time()
+  agent$time_start <- now
+  agent$time_end   <- now
+  if (!inherits(agent, "has_intel")) {
+    class(agent) <- c("has_intel", class(agent))
+  }
   agent
 }
 

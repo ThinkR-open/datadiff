@@ -1,3 +1,18 @@
+# datadiff 0.4.9
+
+## Bug fixes
+
+* The HTML report of an **all-pass** comparison again shows the per-check
+  evaluated row counts (the TBL / EVAL / UNITS / PASS columns). The all-pass
+  fast path built a report agent that {pointblank} did not consider interrogated,
+  so `get_agent_report()` rendered a bare "no interrogation performed" plan with
+  those columns blank, on both the in-memory and the lazy paths. The synthetic
+  report agent is now marked as interrogated in constant time (without re-running
+  the per-column interrogation) and its validation set is built by replicating a
+  single template step, so the report is correct and `build_report_agent()` stays
+  fast on wide tables (~0.04 s for 1448 columns). `coverage` / `summary` were
+  already correct (issue #6).
+
 # datadiff 0.4.8
 
 ## Performance
