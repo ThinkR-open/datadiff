@@ -119,7 +119,9 @@ read_rules <- function(path) {
 #'
 #' @param data_reference Reference dataframe, tibble, or lazy table (tbl_lazy)
 #' @param data_candidate Candidate dataframe to validate against reference
-#' @param key Optional character vector of column names to use as join keys for ordered comparison
+#' @param key Optional character vector of column names to use as join keys for
+#'   ordered comparison. Every key column must exist in both datasets; otherwise
+#'   an error is raised naming the missing column(s) and the dataset(s) concerned.
 #' @param path Path to YAML file containing validation rules. If NULL, default rules are
 #'   generated automatically based on the reference dataset structure.
 #' @param warn_at Warning threshold as fraction of failing tests (default: 1e-14)
@@ -403,18 +405,27 @@ compare_datasets_from_yaml <- function(data_reference,
   row_validation_info <- validate_row_counts(data_reference_p, data_candidate_p, rules)
 
   if (!is.null(key)) {
-    if (isFALSE(all(key %in% get_col_names(data_reference_p))) | isFALSE(all(key %in% get_col_names(data_candidate_p)))) {
-      message("could not find key in both data")
-      return(
-        list(
-          all_passed = FALSE,
-          agent = NULL,
-          reponse = NULL,
-          missing_in_candidate = NULL,
-          extra_in_candidate = NULL,
-          applied_rules = NULL
+    missing_key_ref  <- setdiff(key, get_col_names(data_reference_p))
+    missing_key_cand <- setdiff(key, get_col_names(data_candidate_p))
+    if (length(missing_key_ref) > 0 || length(missing_key_cand) > 0) {
+      describe_missing <- function(cols, dataset_name) {
+        if (length(cols) == 0) {
+          return(NULL)
+        }
+        sprintf(
+          "%s missing in %s",
+          paste(sprintf("'%s'", cols), collapse = ", "),
+          dataset_name
         )
+      }
+      details <- c(
+        describe_missing(missing_key_ref, dataset_name = "data_reference"),
+        describe_missing(missing_key_cand, dataset_name = "data_candidate")
       )
+      stop(sprintf(
+        "Key column(s) not found: %s.",
+        paste(details, collapse = "; ")
+      ), call. = FALSE)
     }
 
     # Join candidate to reference on key to handle different row counts

@@ -29,7 +29,9 @@ compare_datasets_from_yaml(
 
 \item{data_candidate}{Candidate dataframe to validate against reference}
 
-\item{key}{Optional character vector of column names to use as join keys for ordered comparison}
+\item{key}{Optional character vector of column names to use as join keys for
+ordered comparison. Every key column must exist in both datasets; otherwise
+an error is raised naming the missing column(s) and the dataset(s) concerned.}
 
 \item{path}{Path to YAML file containing validation rules. If NULL, default rules are
 generated automatically based on the reference dataset structure.}

@@ -1,3 +1,14 @@
+# datadiff (development version)
+
+## Breaking changes
+
+* `compare_datasets_from_yaml()` now raises an explicit error when one or more
+  key columns are absent from either dataset, naming the missing column(s) and
+  the dataset(s) concerned. It previously emitted a vague message
+  ("could not find key in both data") and returned a truncated 6-field list
+  (no `coverage`, no `summary`) that broke downstream consumers such as
+  `datadiff_report_html()` (issue #16).
+
 # datadiff 0.4.9
 
 ## Bug fixes

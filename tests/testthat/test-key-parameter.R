@@ -72,7 +72,7 @@ by_type:
   unlink('test_key_null.yaml')
 })
 
-test_that("compare_datasets_from_yaml key parameter validation works", {
+test_that("compare_datasets_from_yaml errors when key columns are absent", {
   ref <- data.frame(id = 1:3, value = c(10.0, 20.0, 30.0))
   cand <- data.frame(id = 1:3, value = c(10.1, 20.1, 30.1))
 
@@ -85,17 +85,52 @@ by_type:
     abs: 0.5
 '
 
-  writeLines(yaml_content, 'test_key_validation.yaml')
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines(yaml_content, con = yaml_path)
 
-  # Test: Invalid key should return an empty output with all_passed FALSE
+  # Key absent from both datasets: explicit error naming both datasets
+  err_both <- tryCatch(
+    compare_datasets_from_yaml(ref, cand, key = "nonexistent", path = yaml_path),
+    error = function(e) {
+      conditionMessage(e)
+    }
+  )
+  expect_match(err_both, "Key column\\(s\\) not found")
+  expect_match(err_both, "'nonexistent'", fixed = TRUE)
+  expect_match(err_both, "data_reference", fixed = TRUE)
+  expect_match(err_both, "data_candidate", fixed = TRUE)
 
-  res <- compare_datasets_from_yaml(ref, cand, key = "nonexistent", path = 'test_key_validation.yaml')
+  # Key present in the reference but absent from the candidate:
+  # only the candidate is named
+  cand_no_id <- data.frame(idx = 1:3, value = c(10.1, 20.1, 30.1))
+  err_cand <- tryCatch(
+    compare_datasets_from_yaml(ref, cand_no_id, key = "id", path = yaml_path),
+    error = function(e) {
+      conditionMessage(e)
+    }
+  )
+  expect_match(err_cand, "'id'", fixed = TRUE)
+  expect_match(err_cand, "data_candidate", fixed = TRUE)
+  expect_no_match(err_cand, "data_reference", fixed = TRUE)
 
-  expect_false(res$all_passed)
-  expect_null(res$agent)
-  expect_null(res$reponse)
-  # Clean up
-  unlink('test_key_validation.yaml')
+  # Same scenario without an explicit YAML path (auto-generated template)
+  expect_error(
+    compare_datasets_from_yaml(ref, cand_no_id, key = "id"),
+    regexp = "Key column\\(s\\) not found"
+  )
+
+  # Multi-column key with a single absent column: only that column is reported
+  ref_multi  <- data.frame(id = 1:3, grp = 1:3, value = 1:3)
+  cand_multi <- data.frame(id = 1:3, value = 1:3)
+  err_multi <- tryCatch(
+    compare_datasets_from_yaml(ref_multi, cand_multi, key = c("id", "grp"), path = yaml_path),
+    error = function(e) {
+      conditionMessage(e)
+    }
+  )
+  expect_match(err_multi, "'grp'", fixed = TRUE)
+  expect_no_match(err_multi, "'id'", fixed = TRUE)
 })
 
 test_that("key parameter takes precedence over YAML in edge cases", {
