@@ -791,27 +791,82 @@ test_that("no crash and no spurious warning when all column types match", {
   unlink(template_path)
 })
 
+# Helper for the positional-path tests: run expr, return the error message
+# and every message emitted (the "key is missing" design note is expected;
+# the error text must never leak on the message stream).
+catch_error_and_messages <- function(expr) {
+  msgs <- character(0)
+  err <- tryCatch(
+    withCallingHandlers(
+      expr,
+      message = function(m) {
+        msgs <<- c(msgs, conditionMessage(m))
+        invokeRestart("muffleMessage")
+      }
+    ),
+    error = function(e) {
+      conditionMessage(e)
+    }
+  )
+  list(error = err, messages = msgs)
+}
+
 test_that("positional comparison with unequal row counts raises a clear error", {
   ref  <- data.frame(value = 1:5)
   cand <- data.frame(value = 1:3)
 
   # No key -> positional comparison; row counts differ -> a single clear error
   # built from error_msg_no_key, mentioning both row counts.
-  err <- tryCatch(
-    suppressMessages(compare_datasets_from_yaml(ref, cand)),
-    error = function(e) {
-      conditionMessage(e)
-    }
-  )
-  expect_match(err, "same number of rows", fixed = TRUE)
-  expect_match(err, "data_reference: 5 rows", fixed = TRUE)
-  expect_match(err, "data_candidate: 3 rows", fixed = TRUE)
+  out <- catch_error_and_messages(compare_datasets_from_yaml(ref, cand))
+  expect_match(out$error, "same number of rows", fixed = TRUE)
+  expect_match(out$error, "data_reference: 5 rows", fixed = TRUE)
+  expect_match(out$error, "data_candidate: 3 rows", fixed = TRUE)
+  # The error text must be raised, not emitted as an informational message
+  expect_false(any(grepl("same number of rows", out$messages, fixed = TRUE)))
 
   # A custom error_msg_no_key must be the text of the raised error.
-  expect_error(
-    suppressMessages(
-      compare_datasets_from_yaml(ref, cand, error_msg_no_key = "CUSTOM_NO_KEY_MSG")
-    ),
-    regexp = "CUSTOM_NO_KEY_MSG"
+  out_custom <- catch_error_and_messages(
+    compare_datasets_from_yaml(ref, cand, error_msg_no_key = "CUSTOM_NO_KEY_MSG")
   )
+  expect_match(out_custom$error, "CUSTOM_NO_KEY_MSG", fixed = TRUE)
+  expect_false(any(grepl("CUSTOM_NO_KEY_MSG", out_custom$messages, fixed = TRUE)))
+})
+
+test_that("unequal-count positional comparison on lazy tables aborts before collecting", {
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+  duckdb::dbWriteTable(con, "ref5",  data.frame(value = 1:5))
+  duckdb::dbWriteTable(con, "cand3", data.frame(value = 1:3))
+
+  out <- catch_error_and_messages(
+    compare_datasets_from_yaml(dplyr::tbl(con, "ref5"), dplyr::tbl(con, "cand3"))
+  )
+  expect_match(out$error, "same number of rows", fixed = TRUE)
+  # The mismatch is decidable from the precomputed counts: no table
+  # materialisation (and no misleading collecting note) before the stop
+  expect_false(any(grepl("collecting non-local tables", out$messages, fixed = TRUE)))
+})
+
+test_that("mixed local/lazy inputs work on the positional path", {
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  df <- data.frame(value = c(1.0, 2.0, 3.0))
+  duckdb::dbWriteTable(con, "t3", df)
+
+  # Local reference + lazy candidate: the candidate must be collected too
+  res <- suppressMessages(
+    compare_datasets_from_yaml(df, dplyr::tbl(con, "t3"))
+  )
+  expect_true(res$all_passed)
+
+  # Lazy reference + local candidate
+  res2 <- suppressMessages(
+    compare_datasets_from_yaml(dplyr::tbl(con, "t3"), df)
+  )
+  expect_true(res2$all_passed)
 })

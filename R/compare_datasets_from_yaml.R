@@ -473,13 +473,9 @@ compare_datasets_from_yaml <- function(data_reference,
     # Join candidate to reference on key to handle different row counts
     cmp <- left_join(data_candidate_p, data_reference_p, by = key, suffix = c("", ref_suffix))
   } else {
-    # For non-keyed comparison, collect non-local tables (positional join requires local data)
-    if (is_non_local(data_reference_p)) {
-      message("Note: positional comparison requires collecting non-local tables into memory.")
-      data_reference_p <- dplyr::collect(data_reference_p)
-      data_candidate_p <- dplyr::collect(data_candidate_p)
-    }
-    # Use pre-computed counts from validate_row_counts (avoids a second nrow() on lazy)
+    # Row-count mismatch is decidable from the counts precomputed by
+    # validate_row_counts(): abort before the potentially expensive collect
+    # of non-local tables below.
     if (row_validation_info$ref_count != row_validation_info$cand_count) {
       stop(sprintf(
         "%s (data_reference: %s rows, data_candidate: %s rows).",
@@ -487,6 +483,17 @@ compare_datasets_from_yaml <- function(data_reference,
         row_validation_info$ref_count,
         row_validation_info$cand_count
       ), call. = FALSE)
+    }
+    # For non-keyed comparison, collect non-local tables on BOTH sides
+    # (positional binding requires local data on each side).
+    if (is_non_local(data_reference_p) || is_non_local(data_candidate_p)) {
+      message("Note: positional comparison requires collecting non-local tables into memory.")
+      if (is_non_local(data_reference_p)) {
+        data_reference_p <- dplyr::collect(data_reference_p)
+      }
+      if (is_non_local(data_candidate_p)) {
+        data_candidate_p <- dplyr::collect(data_candidate_p)
+      }
     }
     cmp <- data_candidate_p
     if (length(common_cols) > 0) {
