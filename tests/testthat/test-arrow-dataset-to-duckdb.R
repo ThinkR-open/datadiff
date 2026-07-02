@@ -7,9 +7,11 @@ test_that("a Parquet path containing a quote works end to end", {
   skip_if_not_installed("duckdb")
   skip_if_not_installed("dbplyr")
 
-  d <- file.path(tempdir(), "l'export datadiff")
-  dir.create(d, showWarnings = FALSE)
-  on.exit(unlink(d, recursive = TRUE), add = TRUE)
+  # Unique base dir per run (parallel/leftover safety), apostrophe kept in
+  # the leaf name since that is the load-bearing part of the test
+  d <- file.path(tempfile(pattern = "datadiff_quote_"), "l'export datadiff")
+  dir.create(d, recursive = TRUE, showWarnings = FALSE)
+  on.exit(unlink(dirname(d), recursive = TRUE), add = TRUE)
   arrow::write_parquet(
     data.frame(id = 1:3, x = c(1.0, 2.0, 3.0)),
     file.path(d, "part-0.parquet")
@@ -25,7 +27,7 @@ test_that("multi-file datasets with shifted schemas are unified by name", {
   skip_if_not_installed("duckdb")
   skip_if_not_installed("dbplyr")
 
-  d <- file.path(tempdir(), "datadiff_union_by_name")
+  d <- tempfile(pattern = "datadiff_union_by_name_")
   dir.create(d, showWarnings = FALSE)
   on.exit(unlink(d, recursive = TRUE), add = TRUE)
   # Same columns, different physical order in the second file: a positional
