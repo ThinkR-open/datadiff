@@ -631,13 +631,27 @@ compare_datasets_from_yaml <- function(data_reference,
       if (isTRUE(row_validation_info$check_count)) "row_count_ok" else character(0)
     )
     cmp_slim      <- dplyr::select(cmp, dplyr::any_of(val_cols))
-    tmp_tbl_name  <- paste0("datadiff_", gsub("[^0-9]", "", format(Sys.time(), "%H%M%OS3")))
+    tmp_tbl_name  <- datadiff_tmp_table_name()
     # compute() sends CREATE TEMP TABLE AS SELECT ... to DuckDB: all computation
     # (join, boolean expressions) happens inside DuckDB's process, with disk
     # spilling available for the large join.  We then collect() the slim boolean
     # result into R so that pointblank receives a plain data.frame - avoiding
     # DuckDB connection-state issues (is_tbl_mssql crash) during interrogation.
     cmp_slim_computed <- dplyr::compute(cmp_slim, name = tmp_tbl_name, temporary = TRUE)
+    # The slim table only feeds the collect() below. Drop it at exit so that
+    # repeated calls on a user-supplied connection do not accumulate temp
+    # tables for the lifetime of that connection. after = FALSE runs the drop
+    # BEFORE the exit handlers registered earlier, in particular before the
+    # dbDisconnect of the private connection on the Arrow path (on.exit
+    # add = TRUE fires FIFO by default, which would drop on a closed
+    # connection); the try() then only masks genuine failures.
+    on.exit(
+      try(
+        DBI::dbRemoveTable(dbplyr::remote_con(cmp_slim_computed), tmp_tbl_name),
+        silent = TRUE
+      ),
+      add = TRUE, after = FALSE
+    )
     cmp_for_agent     <- dplyr::collect(cmp_slim_computed)
   }
 
