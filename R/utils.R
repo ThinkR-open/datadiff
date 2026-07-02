@@ -45,10 +45,19 @@ arrow_dataset_to_duckdb <- function(ds, con, tbl_name) {
   })
   if (!is.null(files) && length(files) > 0 &&
       all(grepl("\\.parquet$", files, ignore.case = TRUE))) {
-    paths_sql <- paste0("'", gsub("\\\\", "/", files), "'", collapse = ", ")
+    # dbQuoteString: a path containing a quote (l'export.parquet) must not
+    # break the SQL. union_by_name: bind the files by column NAME, matching
+    # the unified-schema guarantee of the arrow::to_duckdb() fallback even
+    # when the physical column order differs across files.
+    quoted_paths <- vapply(X = gsub("\\\\", "/", files), FUN = function(p) {
+      as.character(DBI::dbQuoteString(con, x = p))
+    }, FUN.VALUE = character(1), USE.NAMES = FALSE)
     DBI::dbExecute(con, paste0(
-      "CREATE OR REPLACE TEMP TABLE \"", tbl_name, "\" AS ",
-      "SELECT * FROM read_parquet([", paths_sql, "])"
+      "CREATE OR REPLACE TEMP TABLE ",
+      as.character(DBI::dbQuoteIdentifier(con, x = tbl_name)), " AS ",
+      "SELECT * FROM read_parquet([",
+      paste(quoted_paths, collapse = ", "),
+      "], union_by_name = true)"
     ))
     return(dplyr::tbl(con, tbl_name))
   }
