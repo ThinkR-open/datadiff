@@ -2,6 +2,12 @@
 
 ## Bug fixes
 
+* The lazy path no longer leaks its internal temp table on a user-supplied
+  connection: the slim boolean table is dropped at the end of each call (the
+  Arrow path already closed its private connection). Its name is now derived
+  from a per-process counter plus the PID instead of the wall clock, removing
+  a collision window for two calls in the same millisecond (issue #19).
+
 * Lazy comparisons now work on tables containing a column named `n`. The
   duplicate-key detection used `dplyr::count()` with its default output name:
   with a key column named `n`, the filter and the aggregates silently read the

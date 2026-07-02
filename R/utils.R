@@ -17,6 +17,18 @@ is_non_local <- function(x) {
   inherits(x, "tbl_lazy") || inherits(x, c("ArrowObject", "arrow_dplyr_query"))
 }
 
+# Package-local mutable state (temp-table counter).
+.datadiff_state <- new.env(parent = emptyenv())
+
+# Unique temp-table name: per-process counter + PID, so that two calls in the
+# same session never collide (a clock-derived name could repeat within the
+# same millisecond) and two R processes sharing a database cannot either.
+datadiff_tmp_table_name <- function() {
+  counter <- get0("tmp_tbl_counter", envir = .datadiff_state, ifnotfound = 0L) + 1L
+  assign("tmp_tbl_counter", value = counter, envir = .datadiff_state)
+  sprintf("datadiff_tmp_%d_%d", Sys.getpid(), counter)
+}
+
 is_arrow <- function(x) {
   inherits(x, c("ArrowObject", "arrow_dplyr_query"))
 }
