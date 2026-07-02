@@ -17,7 +17,7 @@ Analyzes each column of a dataframe to determine its data type
 (integer, numeric, date, datetime, logical, or character)
 }
 \details{
-Everything that is none of the first five types falls in the "character"
+Any column matching none of the first five types falls in the "character"
 bucket and receives the character rules. That is intentional for factors
 (compared as the character values they display, see
 \code{\link[=preprocess_dataframe]{preprocess_dataframe()}}) and works for types whose \code{==} behaves like
