@@ -171,7 +171,9 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' @param stop_at Stop threshold as fraction of failing tests (default: 1e-14)
 #' @param ref_suffix Suffix for reference columns in comparison dataframe (default: "__reference")
 #' @param label Descriptive label for the validation report
-#' @param error_msg_no_key Error message when datasets have different row counts without keys
+#' @param error_msg_no_key Text of the error raised when a positional (key-less)
+#'   comparison receives datasets with different row counts; the actual row
+#'   counts of both datasets are appended to this text.
 #' @param lang Language code for pointblank reports. Defaults to the
 #'   \code{datadiff.lang} option if set, otherwise \code{"fr"}. Override globally
 #'   with \code{options(datadiff.lang = "en")}. Supported values include
@@ -479,11 +481,18 @@ compare_datasets_from_yaml <- function(data_reference,
     }
     # Use pre-computed counts from validate_row_counts (avoids a second nrow() on lazy)
     if (row_validation_info$ref_count != row_validation_info$cand_count) {
-      message(error_msg_no_key)
+      stop(sprintf(
+        "%s (data_reference: %s rows, data_candidate: %s rows).",
+        error_msg_no_key,
+        row_validation_info$ref_count,
+        row_validation_info$cand_count
+      ), call. = FALSE)
     }
     cmp <- data_candidate_p
-    for (c in common_cols) {
-      cmp[[paste0(c, ref_suffix)]] <- data_reference_p[[c]]
+    if (length(common_cols) > 0) {
+      ref_block <- data_reference_p[, common_cols, drop = FALSE]
+      names(ref_block) <- paste0(common_cols, ref_suffix)
+      cmp <- dplyr::bind_cols(cmp, ref_block)
     }
   }
 

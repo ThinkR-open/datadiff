@@ -791,34 +791,27 @@ test_that("no crash and no spurious warning when all column types match", {
   unlink(template_path)
 })
 
-test_that("message is shown for positional comparison when row counts differ", {
+test_that("positional comparison with unequal row counts raises a clear error", {
   ref  <- data.frame(value = 1:5)
   cand <- data.frame(value = 1:3)
 
-  # No key -> positional comparison; row counts differ -> message emitted then
-  # R errors on column assignment. Capture every message before the error.
-  capture_messages <- function(expr) {
-    msgs <- character(0)
-    tryCatch(
-      withCallingHandlers(
-        suppressWarnings(expr),
-        message = function(m) {
-          msgs <<- c(msgs, conditionMessage(m))
-          invokeRestart("muffleMessage")
-        }
-      ),
-      error = function(e) NULL
-    )
-    msgs
-  }
-
-  # Default: the row-count message uses error_msg_no_key's default text.
-  msgs <- capture_messages(compare_datasets_from_yaml(ref, cand))
-  expect_true(any(grepl("same number of rows", msgs)))
-
-  # A custom error_msg_no_key must actually reach the emitted message.
-  msgs_custom <- capture_messages(
-    compare_datasets_from_yaml(ref, cand, error_msg_no_key = "CUSTOM_NO_KEY_MSG")
+  # No key -> positional comparison; row counts differ -> a single clear error
+  # built from error_msg_no_key, mentioning both row counts.
+  err <- tryCatch(
+    suppressMessages(compare_datasets_from_yaml(ref, cand)),
+    error = function(e) {
+      conditionMessage(e)
+    }
   )
-  expect_true(any(grepl("CUSTOM_NO_KEY_MSG", msgs_custom)))
+  expect_match(err, "same number of rows", fixed = TRUE)
+  expect_match(err, "data_reference: 5 rows", fixed = TRUE)
+  expect_match(err, "data_candidate: 3 rows", fixed = TRUE)
+
+  # A custom error_msg_no_key must be the text of the raised error.
+  expect_error(
+    suppressMessages(
+      compare_datasets_from_yaml(ref, cand, error_msg_no_key = "CUSTOM_NO_KEY_MSG")
+    ),
+    regexp = "CUSTOM_NO_KEY_MSG"
+  )
 })
