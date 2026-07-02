@@ -115,7 +115,10 @@ add_ok_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
 #' (ordered above everything, `NaN = NaN` true), so NaN detection uses
 #' `isnan()` there. Backends without NaN storage (SQLite turns NaN into NULL
 #' on insert) fall back to the NULL rules; infinity detection uses a
-#' `> DBL_MAX` comparison where `isinf()` is unavailable.
+#' `> DBL_MAX` comparison where `isinf()` is unavailable. Known limitation:
+#' NaN detection is only wired for DuckDB (the tested lazy backend). A
+#' non-DuckDB backend that does store NaN (e.g. PostgreSQL) keeps the
+#' NULL-only rules for NaN, i.e. the pre-fix semantics on those values.
 #'
 #' @param cmp A lazy table (the join of candidate and reference).
 #' @param tol_cols,eq_cols Tolerance / equality column names.

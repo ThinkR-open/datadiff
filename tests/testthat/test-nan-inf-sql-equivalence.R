@@ -69,6 +69,18 @@ test_that("SQLite tolerance booleans match the R kernel on Inf/NA", {
                        abs_tol = 0.1, rel_tol = 0, na_equal = na_equal)
     expect_identical(got, expected)
   }
+
+  # Relative tolerance: an infinite reference must not let a finite
+  # candidate pass through an infinite threshold (DBL_MAX detection)
+  for (na_equal in c(TRUE, FALSE)) {
+    expected_rel <- compute_tolerance_col(
+      grid$cand, grid$ref,
+      abs_tol = 0, rel_tol = 0.5, na_equal = na_equal
+    )$ok
+    got_rel <- lazy_tol_ok(con, grid$cand, grid$ref,
+                           abs_tol = 0, rel_tol = 0.5, na_equal = na_equal)
+    expect_identical(got_rel, expected_rel)
+  }
 })
 
 test_that("numeric equality columns treat NaN as NA-like on DuckDB", {
