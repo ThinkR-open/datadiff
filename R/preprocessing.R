@@ -65,12 +65,22 @@ preprocess_dataframe <- function(df, col_rules, schema = NULL) {
   }
   for (nm in names(col_rules)) {
     cr <- col_rules[[nm]]
-    eq_mode <- cr$equal_mode %||% "exact"
-    case_insensitive <- isTRUE(cr$case_insensitive)
-    trim <- isTRUE(cr$trim)
+    normalized <- identical(cr$equal_mode %||% "exact", "normalized")
 
-    # Apply normalization if equal_mode is "normalized" OR if case_insensitive/trim is TRUE
-    should_normalize <- identical(eq_mode, "normalized") || case_insensitive || trim
+    # equal_mode "normalized" implies BOTH text normalizations unless the
+    # rule sets them explicitly (an explicit FALSE wins over the mode)
+    case_insensitive <- if (is.null(cr$case_insensitive)) {
+      normalized
+    } else {
+      isTRUE(cr$case_insensitive)
+    }
+    trim <- if (is.null(cr$trim)) {
+      normalized
+    } else {
+      isTRUE(cr$trim)
+    }
+
+    should_normalize <- case_insensitive || trim
 
     # Determine column type: use schema for lazy tables, otherwise inspect df
     # directly. A factor in the schema counts as character: the local values

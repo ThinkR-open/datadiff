@@ -18,12 +18,19 @@
 #' @param numeric_abs Default absolute tolerance for numeric columns
 #' @param numeric_rel Default relative tolerance for numeric columns
 #' @param integer_abs Default absolute tolerance for integer columns
-#' @param character_equal_mode Default comparison mode for character columns ("exact", "normalized")
+#' @param character_equal_mode Default comparison mode for character columns:
+#'   "exact", or "normalized" which implies `case_insensitive = TRUE` and
+#'   `trim = TRUE` unless those flags are set explicitly (an explicit value
+#'   always wins over the mode)
 #' @param character_case_insensitive Logical for case-insensitive character comparison
 #' @param character_trim Logical for trimming whitespace in character comparison
-#' @param date_equal_mode Default comparison mode for date columns
+#' @param date_equal_mode Default comparison mode for date columns. Only
+#'   "exact" has an effect: text normalization applies to character columns
+#'   only, so "normalized" is accepted but changes nothing for this type.
 #' @param datetime_equal_mode Default comparison mode for datetime columns
+#'   (same caveat as `date_equal_mode`)
 #' @param logical_equal_mode Default comparison mode for logical columns
+#'   (same caveat as `date_equal_mode`)
 #' @return The \code{path} to the written YAML file, returned invisibly.
 #' @importFrom yaml write_yaml
 #' @importFrom stats setNames
@@ -67,6 +74,17 @@ write_rules_template <- function(data_reference,
 
   }
   types <- detect_column_types(.ref_schema)
+  # With equal_mode "normalized", writing the default FALSE flags would
+  # neutralise the mode's implication (an explicit flag wins over the mode):
+  # only include the flags the caller actually supplied
+  character_rules <- list(equal_mode = character_equal_mode)
+  if (!identical(character_equal_mode, "normalized") ||
+      !missing(character_case_insensitive)) {
+    character_rules$case_insensitive <- character_case_insensitive
+  }
+  if (!identical(character_equal_mode, "normalized") || !missing(character_trim)) {
+    character_rules$trim <- character_trim
+  }
   y <- list(
     version = version,
     defaults = list(na_equal = na_equal_default,
@@ -78,7 +96,7 @@ write_rules_template <- function(data_reference,
     by_type = list(
       numeric = list(abs = numeric_abs, rel = numeric_rel),
       integer = list(abs = integer_abs),
-      character = list(equal_mode = character_equal_mode, case_insensitive = character_case_insensitive, trim = character_trim),
+      character = character_rules,
       date = list(equal_mode = date_equal_mode),
       datetime = list(equal_mode = datetime_equal_mode),
       logical = list(equal_mode = logical_equal_mode)
