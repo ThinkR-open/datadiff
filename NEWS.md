@@ -2,6 +2,18 @@
 
 ## Performance
 
+* The verdict, the coverage and the failing-column sets now come from a
+  SINGLE pass over the boolean validation columns: `build_coverage()` runs
+  first and everything else derives from it (its rows already carry the
+  structural checks). Previously the same booleans were scanned twice on a
+  green comparison and three times on a red one, and each scan recomputed the
+  local equality booleans from scratch. The now-unused scanners
+  (`all_validations_pass()`, `failing_columns()`, the `*_col_passes()`
+  predicates) are removed. Verdicts are byte-identical (equivalence guard
+  green); measured ~6% end to end on a green 200-column x 200k comparison
+  (4.35 s to 4.07 s), the join and preprocessing dominating the rest
+  (issue #21).
+
 * `compute_tolerance_ok()` gains an intermediate fast path for the most common
   real-data case: a column with NA but no infinity no longer falls back to the
   full special-value kernel. NaN needs no dedicated handling there (`is.na()`

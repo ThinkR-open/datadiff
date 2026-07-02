@@ -60,67 +60,6 @@ eq_col_bool <- function(tbl, col, ref_suffix, na_equal) {
   out
 }
 
-tol_col_passes <- function(tbl, col) {
-  isTRUE(all(tol_col_bool(tbl, col = col)))
-}
-
-eq_col_passes <- function(tbl, col, ref_suffix, na_equal) {
-  isTRUE(all(eq_col_bool(tbl, col = col, ref_suffix = ref_suffix, na_equal = na_equal)))
-}
-
-#' Fast global pass/fail without building the per-column pointblank agent
-#'
-#' The verdict produced by \code{compare_datasets_from_yaml} is entirely
-#' determined by boolean columns already computed in a single vectorised pass
-#' (\code{<col>__ok} for tolerance columns, \code{<col>__eq} for equality
-#' columns on the lazy path). pointblank then re-checks those booleans through
-#' one validation step per column, which dominates runtime on wide tables. When
-#' every check passes there is nothing to extract, so the agent can be skipped.
-#'
-#' @param tbl Local data.frame holding the boolean validation columns (and, for
-#'   the local path, the raw and reference equality columns).
-#' @param tol_cols Character vector of tolerance column names.
-#' @param eq_cols Character vector of equality column names (already stripped of
-#'   key, type-mismatch and tolerance columns).
-#' @param ref_suffix Suffix identifying reference columns.
-#' @param na_equal Logical; whether NA equals NA for equality columns.
-#' @return \code{TRUE} iff every tolerance and equality check passes.
-#' @noRd
-all_validations_pass <- function(tbl, tol_cols, eq_cols, ref_suffix, na_equal) {
-  for (c in tol_cols) {
-    if (!tol_col_passes(tbl, col = c)) {
-      return(FALSE)
-    }
-  }
-  for (c in eq_cols) {
-    if (!eq_col_passes(tbl, col = c, ref_suffix = ref_suffix, na_equal = na_equal)) {
-      return(FALSE)
-    }
-  }
-  TRUE
-}
-
-#' Subset of columns whose validation fails
-#'
-#' Used on the failure path to build pointblank steps only for columns that
-#' actually fail. Columns that pass produce empty data extracts, so omitting
-#' their steps leaves \code{get_data_extracts()} unchanged while avoiding the
-#' per-column agent overhead on the passing majority.
-#'
-#' @inheritParams all_validations_pass
-#' @return A list with \code{tol} and \code{eq} character vectors of failing
-#'   column names.
-#' @noRd
-failing_columns <- function(tbl, tol_cols, eq_cols, ref_suffix, na_equal) {
-  fail_tol <- tol_cols[vapply(tol_cols, function(c) {
-    !tol_col_passes(tbl, col = c)
-  }, logical(1))]
-  fail_eq <- eq_cols[vapply(eq_cols, function(c) {
-    !eq_col_passes(tbl, col = c, ref_suffix = ref_suffix, na_equal = na_equal)
-  }, logical(1))]
-  list(tol = fail_tol, eq = fail_eq)
-}
-
 #' Build a minimal pointblank agent whose interrogation passes
 #'
 #' Used for the all-pass short-circuit: produces a valid interrogated
