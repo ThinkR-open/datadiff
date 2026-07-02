@@ -4,7 +4,12 @@
 \alias{validate_row_counts}
 \title{Validate row counts according to rules}
 \usage{
-validate_row_counts(data_reference_p, data_candidate_p, rules)
+validate_row_counts(
+  data_reference_p,
+  data_candidate_p,
+  rules,
+  count_rows = TRUE
+)
 }
 \arguments{
 \item{data_reference_p}{Preprocessed reference dataframe}
@@ -12,6 +17,13 @@ validate_row_counts(data_reference_p, data_candidate_p, rules)
 \item{data_candidate_p}{Preprocessed candidate dataframe}
 
 \item{rules}{List of validation rules containing row_validation settings}
+
+\item{count_rows}{Logical; when \code{FALSE}, the row counts are not computed and
+\code{ref_count}/\code{cand_count} are \code{NA}. On lazy tables each count is a full
+\verb{COUNT(*)} scan, wasted when nothing consumes it (keyed comparison with
+\code{check_count: false}). Ignored when the rules activate \code{check_count}:
+the counts are then always computed, so the returned structure stays
+consistent (an active check never sees \code{NA} counts).}
 }
 \value{
 A list with validation information for pointblank integration

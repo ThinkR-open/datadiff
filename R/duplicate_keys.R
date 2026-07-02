@@ -34,17 +34,32 @@ find_duplicate_keys <- function(data, key) {
     while (count_col %in% key) {
       count_col <- paste0(count_col, "_")
     }
-    dups <- data %>%
+    duplicated_groups <- data %>%
       dplyr::count(dplyr::across(dplyr::all_of(key)), name = count_col) %>%
-      dplyr::filter(.data[[count_col]] > 1L) %>%
+      dplyr::filter(.data[[count_col]] > 1L)
+    # Aggregate in SQL: only 2 scalars plus at most 3 example groups cross the
+    # wire, instead of every duplicated group (potentially millions).
+    agg <- duplicated_groups %>%
+      dplyr::summarise(
+        ..datadiff_dup_keys = dplyr::n(),
+        ..datadiff_dup_rows = sum(.data[[count_col]], na.rm = TRUE)
+      ) %>%
       dplyr::collect()
-    if (nrow(dups) == 0L) {
+    n_dup_keys <- as.numeric(agg$..datadiff_dup_keys)
+    if (n_dup_keys == 0) {
       return(NULL)
     }
+    example_groups <- duplicated_groups %>%
+      utils::head(3L) %>%
+      dplyr::collect()
+    examples <- format_key_examples(example_groups[, key, drop = FALSE], key)
+    if (n_dup_keys > 3) {
+      examples <- c(examples, "...")
+    }
     return(list(
-      n_dup_keys = nrow(dups),
-      n_dup_rows = sum(dups[[count_col]]),
-      examples   = format_key_examples(dups[, key, drop = FALSE], key)
+      n_dup_keys = n_dup_keys,
+      n_dup_rows = as.numeric(agg$..datadiff_dup_rows),
+      examples   = examples
     ))
   }
 
