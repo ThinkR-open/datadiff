@@ -16,12 +16,19 @@ types when \code{df} is a lazy table. Obtained via
 \code{dplyr::collect(utils::head(df, 0L))}.}
 }
 \value{
-Preprocessed dataframe (or lazy table) with transformations applied
+Preprocessed dataframe (or lazy table) with transformations applied.
+Factor columns of a local data.frame come back as character vectors.
 }
 \description{
 Applies preprocessing transformations to dataframe columns based on validation rules,
 such as text normalization for character columns. Supports both local data.frames
 and lazy tables (tbl_lazy) via dplyr::mutate().
+}
+\details{
+On a local data.frame, every factor column (including key and non-compared
+columns) is first converted to character: factors are compared as the
+character values they display, so the text normalization rules apply to
+them and factors with differing level sets compare cleanly.
 }
 \examples{
 df <- data.frame(text_col = c("  HELLO  ", "world"))

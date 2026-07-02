@@ -2,6 +2,14 @@
 
 ## Bug fixes
 
+* Factor columns are now compared as the character values they display:
+  preprocessing converts them, so the text normalization rules
+  (`case_insensitive`, `trim`) apply to them and the verdict no longer depends
+  on `stringsAsFactors` or haven-style imports. This also fixes an opaque
+  error when reference and candidate factors carried different level sets
+  ("level sets of factors are different"). Factor key columns join correctly
+  (issue #28).
+
 * The lazy SQL booleans now reproduce the R tolerance kernel's NaN/Inf
   semantics: same-sign infinities pass, a one-sided NA/NaN/Inf fails, NaN on
   both sides follows `na_equal`. The previous CASE WHEN only handled SQL NULL,
