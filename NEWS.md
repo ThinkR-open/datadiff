@@ -2,6 +2,16 @@
 
 ## Bug fixes
 
+* Argument vs YAML resolution is now deterministic and documented: explicit
+  argument > YAML `defaults` > built-in default, for both `key` and `label`.
+  Previously the `label` argument was silently overwritten by the YAML label
+  (or the built-in default) whenever `path` was provided, and the YAML `keys`
+  field was only reached through `$` partial matching on a singular `key`
+  lookup, an accident waiting to break. `keys` is now read explicitly, with a
+  legacy singular `key` field honored as fallback; when both are present,
+  `keys` (the canonical field written by `write_rules_template()`) wins
+  (issue #20).
+
 * A positional (key-less) comparison of datasets with different row counts now
   raises a single clear error built from `error_msg_no_key` and mentioning both
   row counts. It previously emitted `error_msg_no_key` as an informational

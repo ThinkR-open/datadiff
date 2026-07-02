@@ -228,6 +228,11 @@ defaults:
   keys: id                # join key (single or composite)
   label: ref vs cand      # label shown in the pointblank report
 
+# Note: when a setting exists both as a function argument and in the YAML,
+# the explicit argument wins: key > defaults$keys, label > defaults$label.
+# The canonical YAML field for the join key is "keys" (a legacy singular
+# "key" field is honored as fallback when "keys" is absent).
+
 row_validation:
   check_count: yes
   expected_count: ~       # null = use reference row count

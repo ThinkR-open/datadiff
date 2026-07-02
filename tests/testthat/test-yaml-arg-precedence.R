@@ -1,0 +1,156 @@
+# Precedence between explicit arguments and YAML rules (issue #20):
+# explicit argument > YAML defaults > built-in default.
+
+test_that("explicit label argument wins over the YAML label", {
+  ref <- data.frame(id = 1:2, x = c(1.0, 2.0))
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  write_rules_template(ref, key = "id", label = "yaml label", path = yaml_path)
+
+  res <- compare_datasets_from_yaml(
+    ref, ref,
+    key = "id", path = yaml_path, label = "explicit label"
+  )
+  expect_identical(res$reponse$label, "explicit label")
+
+  # Without an explicit argument, the YAML label applies
+  res_yaml <- compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path)
+  expect_identical(res_yaml$reponse$label, "yaml label")
+
+  # An empty string means "no explicit label": the YAML label still applies
+  res_empty <- compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path,
+                                          label = "")
+  expect_identical(res_empty$reponse$label, "yaml label")
+})
+
+test_that("YAML 'keys' field is read without $ partial matching", {
+  ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
+  # Shuffled candidate: only a comparison joined on the YAML key passes
+  cand_shuffled <- ref[c(3, 1, 2), , drop = FALSE]
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines('
+version: 1
+defaults:
+  keys: [id]
+  na_equal: yes
+row_validation:
+  check_count: no
+by_type:
+  numeric:
+    abs: 0.000000001
+', con = yaml_path)
+
+  # warnPartialMatchDollar makes any $ partial-match resolution audible:
+  # without it, a regressed rules$defaults$key implementation would pass
+  # this test silently (both implementations resolve the key)
+  old <- options(warnPartialMatchDollar = TRUE)
+  on.exit(options(old), add = TRUE)
+
+  # Muffle ONLY partial-match warnings (the tested regression signal);
+  # any other warning stays audible and would surface in the test output
+  partial_warns <- character(0)
+  withCallingHandlers(
+    {
+      res <- compare_datasets_from_yaml(ref, cand_shuffled, path = yaml_path)
+    },
+    warning = function(w) {
+      if (grepl("partial match", conditionMessage(w))) {
+        partial_warns <<- c(partial_warns, conditionMessage(w))
+        invokeRestart("muffleWarning")
+      }
+    }
+  )
+  expect_true(res$all_passed)
+  expect_length(partial_warns, 0L)
+})
+
+test_that("an invalid label argument is rejected with a clear error", {
+  ref <- data.frame(id = 1:2, x = c(1.0, 2.0))
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  write_rules_template(ref, key = "id", path = yaml_path)
+
+  # NA and non-scalar labels must be rejected upfront, not crash later on
+  # an if (label == "") condition
+  expect_error(
+    compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path,
+                               label = NA_character_),
+    regexp = "single character string"
+  )
+  expect_error(
+    compare_datasets_from_yaml(ref, ref, key = "id", label = NA_character_),
+    regexp = "single character string"
+  )
+  expect_error(
+    compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path,
+                               label = c("a", "b")),
+    regexp = "single character string"
+  )
+  expect_error(
+    write_rules_template(ref, key = "id", label = NA_character_,
+                         path = tempfile(fileext = ".yaml")),
+    regexp = "single character string"
+  )
+})
+
+test_that("YAML with both 'keys' and legacy 'key' fields: 'keys' wins", {
+  ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
+  cand_shuffled <- ref[c(3, 1, 2), , drop = FALSE]
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines('
+version: 1
+defaults:
+  keys: [id]
+  key: [nonexistent]
+row_validation:
+  check_count: no
+', con = yaml_path)
+
+  # If the legacy singular field won, the comparison would error on a
+  # missing key column
+  res <- compare_datasets_from_yaml(ref, cand_shuffled, path = yaml_path)
+  expect_true(res$all_passed)
+})
+
+test_that("legacy singular 'key' YAML field is still honored", {
+  ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
+  cand_shuffled <- ref[c(3, 1, 2), , drop = FALSE]
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines('
+version: 1
+defaults:
+  key: [id]
+row_validation:
+  check_count: no
+', con = yaml_path)
+
+  res <- compare_datasets_from_yaml(ref, cand_shuffled, path = yaml_path)
+  expect_true(res$all_passed)
+})
+
+test_that("key argument wins over the YAML keys field", {
+  ref <- data.frame(id = 1:3, other = c(10L, 20L, 30L), value = c(1.0, 2.0, 3.0))
+  cand_shuffled <- ref[c(3, 1, 2), , drop = FALSE]
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines('
+version: 1
+defaults:
+  keys: [nonexistent]
+row_validation:
+  check_count: no
+', con = yaml_path)
+
+  # The explicit argument must shadow the (broken) YAML keys entirely
+  res <- compare_datasets_from_yaml(ref, cand_shuffled, key = "id", path = yaml_path)
+  expect_true(res$all_passed)
+})

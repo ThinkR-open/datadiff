@@ -62,6 +62,7 @@ write_rules_template <- function(data_reference,
       )
     }
   }
+  validate_label(label)
   if (is.null(label) || label == "") {label <- paste("comparaison", deparse1(substitute(data_reference)))
 
   }
@@ -109,6 +110,27 @@ read_rules <- function(path) {
   r$by_name  <- r$by_name  %||% list()
   r$row_validation <- r$row_validation %||% list(check_count = FALSE, expected_count = NULL, tolerance = 0)
   r
+}
+
+#' Validate a report label argument
+#'
+#' A label must be NULL or a single non-NA character string: anything else
+#' would crash later on the scalar `if (label == "")` fallback checks.
+#'
+#' @param label The label value to validate.
+#' @return \code{NULL}, invisibly. Called for its side effect (error).
+#' @noRd
+validate_label <- function(label) {
+  if (is.null(label)) {
+    return(invisible(NULL))
+  }
+  if (!is.character(label) || length(label) != 1 || is.na(label)) {
+    stop(
+      "Parameter 'label' must be a single character string (or NULL).",
+      call. = FALSE
+    )
+  }
+  invisible(NULL)
 }
 
 #' Validate a comparison key against both datasets
@@ -160,17 +182,42 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' validation rules defined in a YAML file. Supports exact matching, tolerance-based
 #' comparisons, text normalization, and row count validation.
 #'
+#' @section Argument vs YAML precedence:
+#' Some settings can come both from an explicit argument and from the YAML
+#' rules file. The resolution is always: explicit argument first, then the
+#' YAML `defaults` section, then the built-in default.
+#'
+#' | Setting | Explicit argument | YAML `defaults` field | Built-in default |
+#' |---|---|---|---|
+#' | join key | `key` | `keys` (legacy alias: `key`) | none (positional) |
+#' | report label | `label` | `label` | "Comparing candidate vs reference" |
+#'
+#' When the YAML contains both `keys` and the legacy singular `key` field,
+#' `keys` (the canonical field written by [write_rules_template()]) wins.
+#'
+#' The `key` argument must be a character vector (a non-character value is an
+#' error), while YAML-sourced key values are coerced to character (YAML being
+#' stringly typed, `keys: [2024]` designates the column named "2024").
+#'
+#' Note for `path = NULL`: the auto-generated rules template itself carries a
+#' label (`"Comparison with default rules"`, or the explicit `label` argument),
+#' so that is the label effectively used without a YAML file; the built-in
+#' default above only applies when a YAML file is supplied with an empty or
+#' missing `defaults$label`.
+#'
 #' @param data_reference Reference dataframe, tibble, or lazy table (tbl_lazy)
 #' @param data_candidate Candidate dataframe to validate against reference
 #' @param key Optional character vector of column names to use as join keys for
 #'   ordered comparison. Every key column must exist in both datasets; otherwise
 #'   an error is raised naming the missing column(s) and the dataset(s) concerned.
+#'   See the "Argument vs YAML precedence" section.
 #' @param path Path to YAML file containing validation rules. If NULL, default rules are
 #'   generated automatically based on the reference dataset structure.
 #' @param warn_at Warning threshold as fraction of failing tests (default: 1e-14)
 #' @param stop_at Stop threshold as fraction of failing tests (default: 1e-14)
 #' @param ref_suffix Suffix for reference columns in comparison dataframe (default: "__reference")
-#' @param label Descriptive label for the validation report
+#' @param label Descriptive label for the validation report. See the
+#'   "Argument vs YAML precedence" section.
 #' @param error_msg_no_key Text of the error raised when a positional (key-less)
 #'   comparison receives datasets with different row counts; the actual row
 #'   counts of both datasets are appended to this text.
@@ -261,6 +308,7 @@ compare_datasets_from_yaml <- function(data_reference,
   if (!inherits(data_candidate, valid_classes)) {
     stop("data_candidate must be a data.frame, tibble, lazy table, or Arrow object")
   }
+  validate_label(label)
 
   # Guard: ensure dbplyr is available when lazy tables are used
   if (inherits(data_reference, "tbl_lazy") || inherits(data_candidate, "tbl_lazy")) {
@@ -360,12 +408,26 @@ compare_datasets_from_yaml <- function(data_reference,
 
   na_equal <- isTRUE(rules$defaults$na_equal)
   ignore_columns <- rules$defaults$ignore_columns %||% character(0)
-  label <- rules$defaults$label
-  if (is.null(label) || label == "") {label <- "Comparing candidate vs reference"}
 
-  # Use key parameter if provided, otherwise fall back to rules
+  # Precedence: explicit argument > YAML defaults > built-in default.
+  # An empty string means "no explicit label" (same convention as
+  # write_rules_template), so it must not shadow the YAML label.
+  if (!is.null(label) && label == "") {
+    label <- NULL
+  }
+  label <- label %||% rules$defaults[["label"]]
+  if (is.null(label) || label == "") {
+    label <- "Comparing candidate vs reference"
+  }
+
+  # Precedence: explicit argument > YAML defaults > none. The canonical YAML
+  # field is "keys" (what write_rules_template() writes); a legacy singular
+  # "key" field is honored as fallback. [[ avoids $ partial matching.
   if (is.null(key)) {
-    key <- rules$defaults$key
+    key <- rules$defaults[["keys"]] %||% rules$defaults[["key"]]
+    if (!is.null(key)) {
+      key <- as.character(unlist(key, use.names = FALSE))
+    }
   }
 
   if (is.null(key)) {message("key is missing")}
