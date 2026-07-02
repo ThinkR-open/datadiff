@@ -32,12 +32,3 @@ test_that("the count reducers inherit the guard instead of PASS with n = 0", {
     regexp = "internal error"
   )
 })
-
-test_that("the pass predicates inherit the guard instead of TRUE", {
-  tbl <- data.frame(a = 1:3)
-  expect_error(tol_col_passes(tbl, col = "a"), regexp = "internal error")
-  expect_error(
-    eq_col_passes(tbl, col = "a", ref_suffix = "__reference", na_equal = TRUE),
-    regexp = "internal error"
-  )
-})

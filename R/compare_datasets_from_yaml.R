@@ -706,27 +706,11 @@ compare_datasets_from_yaml <- function(data_reference,
     cmp_for_agent     <- dplyr::collect(cmp_slim_computed)
   }
 
-  # Fast all-pass short-circuit.
-  # The verdict is fully determined by the boolean validation columns already
-  # computed above (plus the structural checks). When everything passes there
-  # are no cells to extract, so the expensive per-column pointblank agent (one
-  # step per column, ~quadratic on wide tables) can be replaced by a constant
-  # cost trivially-passing agent. all_passed stays identical and
-  # get_data_extracts() is empty either way. Any failure falls through to the
-  # full per-column agent so failing cells remain extractable byte-for-byte.
-  all_passed_fast <-
-    length(missing_in_candidate) == 0 &&
-    length(type_mismatch_cols) == 0 &&
-    isTRUE(row_count_ok) &&
-    all_validations_pass(
-      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
-      ref_suffix = ref_suffix, na_equal = na_equal
-    )
-
-  # Faithful, O(columns) record of every check performed, built from the same
-  # booleans the verdict is derived from. Always produced (green and red) so the
-  # caller can see what was verified even when the fast path skips the per-column
-  # pointblank agent.
+  # Faithful, O(columns) record of every check performed, built from the
+  # boolean validation columns computed above. It is the SINGLE pass over the
+  # data: the verdict and the failing-column sets below both derive from it,
+  # so the same booleans are no longer scanned two or three times (and the
+  # local equality booleans no longer recomputed once per scan).
   coverage <- build_coverage(
     tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
     missing_in_candidate = missing_in_candidate,
@@ -734,6 +718,20 @@ compare_datasets_from_yaml <- function(data_reference,
     row_validation_info = row_validation_info, row_count_ok = row_count_ok,
     ref_suffix = ref_suffix, na_equal = na_equal
   )
+
+  # Fast all-pass short-circuit.
+  # The verdict is fully determined by the coverage, whose rows already
+  # include the structural checks (missing_column, type_mismatch, row_count).
+  # The row_count row only exists when check_count is TRUE; otherwise
+  # row_count_ok is TRUE by construction (unconditional init above), so the
+  # absent row is neutral.
+  # When everything passes there are no cells to extract, so the expensive
+  # per-column pointblank agent (one step per column, ~quadratic on wide
+  # tables) can be replaced by a constant cost trivially-passing agent.
+  # all_passed stays identical and get_data_extracts() is empty either way.
+  # Any failure falls through to the full per-column agent so failing cells
+  # remain extractable byte-for-byte.
+  all_passed_fast <- all(coverage$n_failed == 0L)
 
   if (all_passed_fast) {
     agent <- build_pass_agent(
@@ -747,9 +745,11 @@ compare_datasets_from_yaml <- function(data_reference,
     # the per-column agent overhead on the passing majority. col_exists steps
     # (which only ever pass) are dropped for the same reason. Structural
     # failures (missing columns, type mismatches, row count) are always kept.
-    fail <- failing_columns(
-      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
-      ref_suffix = ref_suffix, na_equal = na_equal
+    # The failing sets come from the coverage (same booleans, already scanned).
+    fail_rows <- coverage[coverage$n_failed > 0L, , drop = FALSE]
+    fail <- list(
+      tol = fail_rows$column[fail_rows$check == "tolerance"],
+      eq  = fail_rows$column[fail_rows$check == "equality"]
     )
     # Local path: materialise the __eq boolean for the failing equality
     # columns so the pointblank step validates the exact boolean the verdict
