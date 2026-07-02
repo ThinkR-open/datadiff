@@ -31,7 +31,8 @@ compare_datasets_from_yaml(
 
 \item{key}{Optional character vector of column names to use as join keys for
 ordered comparison. Every key column must exist in both datasets; otherwise
-an error is raised naming the missing column(s) and the dataset(s) concerned.}
+an error is raised naming the missing column(s) and the dataset(s) concerned.
+See the "Argument vs YAML precedence" section.}
 
 \item{path}{Path to YAML file containing validation rules. If NULL, default rules are
 generated automatically based on the reference dataset structure.}
@@ -42,7 +43,8 @@ generated automatically based on the reference dataset structure.}
 
 \item{ref_suffix}{Suffix for reference columns in comparison dataframe (default: "__reference")}
 
-\item{label}{Descriptive label for the validation report}
+\item{label}{Descriptive label for the validation report. See the
+"Argument vs YAML precedence" section.}
 
 \item{error_msg_no_key}{Text of the error raised when a positional (key-less)
 comparison receives datasets with different row counts; the actual row
@@ -105,6 +107,25 @@ Main function for comparing reference and candidate datasets using configurable
 validation rules defined in a YAML file. Supports exact matching, tolerance-based
 comparisons, text normalization, and row count validation.
 }
+\section{Argument vs YAML precedence}{
+
+Some settings can come both from an explicit argument and from the YAML
+rules file. The resolution is always: explicit argument first, then the
+YAML \code{defaults} section, then the built-in default.\tabular{llll}{
+   Setting \tab Explicit argument \tab YAML \code{defaults} field \tab Built-in default \cr
+   join key \tab \code{key} \tab \code{keys} (legacy alias: \code{key}) \tab none (positional) \cr
+   report label \tab \code{label} \tab \code{label} \tab "Comparing candidate vs reference" \cr
+}
+
+
+When the YAML contains both \code{keys} and the legacy singular \code{key} field,
+\code{keys} (the canonical field written by \code{\link[=write_rules_template]{write_rules_template()}}) wins.
+
+The \code{key} argument must be a character vector (a non-character value is an
+error), while YAML-sourced key values are coerced to character (YAML being
+stringly typed, \verb{keys: [2024]} designates the column named "2024").
+}
+
 \examples{
 # Create test data
 ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))

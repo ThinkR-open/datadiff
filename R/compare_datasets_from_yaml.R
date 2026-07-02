@@ -160,17 +160,36 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' validation rules defined in a YAML file. Supports exact matching, tolerance-based
 #' comparisons, text normalization, and row count validation.
 #'
+#' @section Argument vs YAML precedence:
+#' Some settings can come both from an explicit argument and from the YAML
+#' rules file. The resolution is always: explicit argument first, then the
+#' YAML `defaults` section, then the built-in default.
+#'
+#' | Setting | Explicit argument | YAML `defaults` field | Built-in default |
+#' |---|---|---|---|
+#' | join key | `key` | `keys` (legacy alias: `key`) | none (positional) |
+#' | report label | `label` | `label` | "Comparing candidate vs reference" |
+#'
+#' When the YAML contains both `keys` and the legacy singular `key` field,
+#' `keys` (the canonical field written by [write_rules_template()]) wins.
+#'
+#' The `key` argument must be a character vector (a non-character value is an
+#' error), while YAML-sourced key values are coerced to character (YAML being
+#' stringly typed, `keys: [2024]` designates the column named "2024").
+#'
 #' @param data_reference Reference dataframe, tibble, or lazy table (tbl_lazy)
 #' @param data_candidate Candidate dataframe to validate against reference
 #' @param key Optional character vector of column names to use as join keys for
 #'   ordered comparison. Every key column must exist in both datasets; otherwise
 #'   an error is raised naming the missing column(s) and the dataset(s) concerned.
+#'   See the "Argument vs YAML precedence" section.
 #' @param path Path to YAML file containing validation rules. If NULL, default rules are
 #'   generated automatically based on the reference dataset structure.
 #' @param warn_at Warning threshold as fraction of failing tests (default: 1e-14)
 #' @param stop_at Stop threshold as fraction of failing tests (default: 1e-14)
 #' @param ref_suffix Suffix for reference columns in comparison dataframe (default: "__reference")
-#' @param label Descriptive label for the validation report
+#' @param label Descriptive label for the validation report. See the
+#'   "Argument vs YAML precedence" section.
 #' @param error_msg_no_key Text of the error raised when a positional (key-less)
 #'   comparison receives datasets with different row counts; the actual row
 #'   counts of both datasets are appended to this text.
@@ -360,12 +379,21 @@ compare_datasets_from_yaml <- function(data_reference,
 
   na_equal <- isTRUE(rules$defaults$na_equal)
   ignore_columns <- rules$defaults$ignore_columns %||% character(0)
-  label <- rules$defaults$label
-  if (is.null(label) || label == "") {label <- "Comparing candidate vs reference"}
 
-  # Use key parameter if provided, otherwise fall back to rules
+  # Precedence: explicit argument > YAML defaults > built-in default
+  label <- label %||% rules$defaults[["label"]]
+  if (is.null(label) || label == "") {
+    label <- "Comparing candidate vs reference"
+  }
+
+  # Precedence: explicit argument > YAML defaults > none. The canonical YAML
+  # field is "keys" (what write_rules_template() writes); a legacy singular
+  # "key" field is honored as fallback. [[ avoids $ partial matching.
   if (is.null(key)) {
-    key <- rules$defaults$key
+    key <- rules$defaults[["keys"]] %||% rules$defaults[["key"]]
+    if (!is.null(key)) {
+      key <- as.character(unlist(key, use.names = FALSE))
+    }
   }
 
   if (is.null(key)) {message("key is missing")}
