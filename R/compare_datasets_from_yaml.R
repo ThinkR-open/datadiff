@@ -133,6 +133,29 @@ validate_label <- function(label) {
   invisible(NULL)
 }
 
+#' Validate the duckdb_memory_limit argument
+#'
+#' The value is interpolated into a DuckDB SET statement: only a plain size
+#' literal (number plus optional unit) or a percentage is accepted.
+#'
+#' @param duckdb_memory_limit The value to validate.
+#' @return \code{NULL}, invisibly. Called for its side effect (error).
+#' @noRd
+validate_duckdb_memory_limit <- function(duckdb_memory_limit) {
+  ok <- is.character(duckdb_memory_limit) &&
+    length(duckdb_memory_limit) == 1 &&
+    !is.na(duckdb_memory_limit) &&
+    grepl("^\\s*[0-9]+(\\.[0-9]+)?\\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB|%)?\\s*$",
+          x = duckdb_memory_limit, ignore.case = TRUE)
+  if (!ok) {
+    stop(
+      "Parameter 'duckdb_memory_limit' must be a single size literal such as \"8GB\" (number plus optional unit or %).",
+      call. = FALSE
+    )
+  }
+  invisible(NULL)
+}
+
 #' Validate a comparison key against both datasets
 #'
 #' Shared guard for every code path that consumes a key: checks the type and
@@ -246,8 +269,10 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #'   may use before spilling intermediate results to `tempdir()`. The default leaves
 #'   headroom for R, Arrow, and the OS alongside DuckDB. Raise it (e.g. `"16GB"`)
 #'   on machines with ample free RAM to reduce disk I/O; lower it (e.g. `"4GB"`)
-#'   when memory is very constrained. Has no effect when both inputs are plain
-#'   `data.frame`s or `tbl_lazy` objects.
+#'   when memory is very constrained. The value is always validated as a size
+#'   literal (an invalid one is an error on every path), but it only takes
+#'   effect when Arrow datasets are used: plain `data.frame`s or `tbl_lazy`
+#'   inputs ignore a valid value.
 #' @return A list containing:
 #'   \item{agent}{Configured pointblank agent with validation results}
 #'   \item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
@@ -309,6 +334,7 @@ compare_datasets_from_yaml <- function(data_reference,
     stop("data_candidate must be a data.frame, tibble, lazy table, or Arrow object")
   }
   validate_label(label)
+  validate_duckdb_memory_limit(duckdb_memory_limit)
 
   # Guard: ensure dbplyr is available when lazy tables are used
   if (inherits(data_reference, "tbl_lazy") || inherits(data_candidate, "tbl_lazy")) {
@@ -347,12 +373,16 @@ compare_datasets_from_yaml <- function(data_reference,
     on.exit(duckdb::dbDisconnect(fresh_con, shutdown = TRUE), add = TRUE)
     # Enable disk-spilling.
     DBI::dbExecute(fresh_con, paste0(
-      "SET temp_directory='", gsub("\\\\", "/", tempdir()), "'"
+      "SET temp_directory = ",
+      as.character(DBI::dbQuoteString(fresh_con, x = gsub("\\\\", "/", tempdir())))
     ))
     # Cap DuckDB's buffer pool so it starts spilling well before exhausting
     # system RAM.  The default (80 % of total RAM) leaves no headroom for
     # R, Arrow, and OS memory.  Configurable via duckdb_memory_limit.
-    DBI::dbExecute(fresh_con, paste0("SET memory_limit = '", duckdb_memory_limit, "'"))
+    DBI::dbExecute(fresh_con, paste0(
+      "SET memory_limit = ",
+      as.character(DBI::dbQuoteString(fresh_con, x = duckdb_memory_limit))
+    ))
     if (is_arrow(data_reference))
       data_reference <- arrow_dataset_to_duckdb(data_reference, fresh_con, "datadiff_ref")
     if (is_arrow(data_candidate))

@@ -2,6 +2,15 @@
 
 ## Robustness
 
+* `arrow_dataset_to_duckdb()` builds its SQL safely: Parquet file paths are
+  quoted with `DBI::dbQuoteString()` (a path containing a quote, common in
+  French like `l'export/`, broke the query with a raw SQL syntax error), the
+  temp table name goes through `dbQuoteIdentifier()`, and `read_parquet()`
+  gets `union_by_name = true` so multi-file datasets bind columns by NAME
+  like the `arrow::to_duckdb()` fallback always did. `duckdb_memory_limit`
+  is validated as a size literal before being interpolated into `SET`, and
+  the `SET temp_directory` path is quoted too (issue #30).
+
 * A missing `__ok`/`__eq` boolean validation column now raises an explicit
   internal error instead of silently reading as an all-pass (`all(NULL)` is
   `TRUE`, and a dropped column previously produced a PASS row with `n = 0` in

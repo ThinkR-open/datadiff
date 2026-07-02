@@ -82,8 +82,10 @@ when Arrow datasets are used (default: \code{"8GB"}). Controls how much RAM Duck
 may use before spilling intermediate results to \code{tempdir()}. The default leaves
 headroom for R, Arrow, and the OS alongside DuckDB. Raise it (e.g. \code{"16GB"})
 on machines with ample free RAM to reduce disk I/O; lower it (e.g. \code{"4GB"})
-when memory is very constrained. Has no effect when both inputs are plain
-\code{data.frame}s or \code{tbl_lazy} objects.}
+when memory is very constrained. The value is always validated as a size
+literal (an invalid one is an error on every path), but it only takes
+effect when Arrow datasets are used: plain \code{data.frame}s or \code{tbl_lazy}
+inputs ignore a valid value.}
 }
 \value{
 A list containing:
