@@ -1,5 +1,16 @@
 # datadiff (development version)
 
+## Performance
+
+* `compute_tolerance_ok()` gains an intermediate fast path for the most common
+  real-data case: a column with NA but no infinity no longer falls back to the
+  full special-value kernel. NaN needs no dedicated handling there (`is.na()`
+  covers NaN, so NaN follows the NA rules identically on both paths); only
+  infinities reroute to the kernel. Bit-identical results, locked by tests;
+  measured ~2.6x faster per NA-bearing column (200k rows, 0.008 s vs 0.020 s).
+  The full kernel itself drops its redundant NaN masks (`both_nan`/`one_nan`
+  are subsets of the NA masks), with unchanged results (issue #23).
+
 ## Robustness
 
 * Report construction hardening (all internal to `R/report.R`):
