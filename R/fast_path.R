@@ -14,9 +14,10 @@
 # error: all(NULL) is TRUE, so returning NULL would silently turn a dropped
 # column into a false all-pass.
 tol_col_bool <- function(tbl, col) {
-  b <- tbl[[paste0(col, "__ok")]]
+  b <- tbl[[datadiff_ok_col(col)]]
   if (is.null(b)) {
-    stop(sprintf("internal error: boolean column '%s__ok' missing", col),
+    stop(sprintf("internal error: boolean column '%s' missing",
+                 datadiff_ok_col(col)),
          call. = FALSE)
   }
   b
@@ -26,7 +27,7 @@ tol_col_bool <- function(tbl, col) {
 # the pre-computed <col>__eq vector (lazy path) or, when absent (local path),
 # the raw comparison with one-sided NA = FALSE and two-sided NA = na_equal.
 eq_col_bool <- function(tbl, col, ref_suffix, na_equal) {
-  eq_precomputed <- tbl[[paste0(col, "__eq")]]
+  eq_precomputed <- tbl[[datadiff_eq_col(col)]]
   if (!is.null(eq_precomputed)) {
     return(eq_precomputed)
   }
@@ -44,8 +45,8 @@ eq_col_bool <- function(tbl, col, ref_suffix, na_equal) {
       }
     )
     stop(sprintf(
-      "internal error: equality column(s) %s missing (no precomputed '%s__eq' either)",
-      paste(missing_cols, collapse = " and "), col
+      "internal error: equality column(s) %s missing (no precomputed '%s' either)",
+      paste(missing_cols, collapse = " and "), datadiff_eq_col(col)
     ), call. = FALSE)
   }
   cand_na   <- is.na(cand_vals)

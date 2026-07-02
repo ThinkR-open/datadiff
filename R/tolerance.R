@@ -100,7 +100,7 @@ add_ok_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
       na_equal = na_equal
     )
   }
-  names(ok_cols) <- paste0(tol_cols, "__ok")
+  names(ok_cols) <- datadiff_ok_col(tol_cols)
   cbind(cmp, list2DF(ok_cols))
 }
 
@@ -245,7 +245,7 @@ add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix,
     rt <- col_rules[[c]][["rel"]] %||% 0
     within <- sprintf("ABS(%s - %s) <= (%s + %s * ABS(%s)) + %s * ABS(%s)",
                       cc, rc, num(at), num(rt), rc, num(fp_eps), rc)
-    sprintf("%s AS %s", case_tol(cc, rc, cond = within), q(paste0(c, "__ok")))
+    sprintf("%s AS %s", case_tol(cc, rc, cond = within), q(datadiff_ok_col(c)))
   }, FUN.VALUE = character(1), USE.NAMES = FALSE)
 
   eq_exprs <- vapply(X = eq_cols, FUN = function(c) {
@@ -253,7 +253,7 @@ add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix,
     rc <- q(paste0(c, ref_suffix))
     sprintf("%s AS %s",
             case_eq(cc, rc, nan_aware = c %in% eq_num_cols),
-            q(paste0(c, "__eq")))
+            q(datadiff_eq_col(c)))
   }, FUN.VALUE = character(1), USE.NAMES = FALSE)
 
   exprs <- c(tol_exprs, eq_exprs)
@@ -299,7 +299,7 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
       rc_sym      <- dplyr::sym(reference_c)
       absdiff_col <- paste0(c, "__absdiff")
       thresh_col  <- paste0(c, "__thresh")
-      ok_col      <- paste0(c, "__ok")
+      ok_col      <- datadiff_ok_col(c)
       absdiff_sym <- dplyr::sym(absdiff_col)
       thresh_sym  <- dplyr::sym(thresh_col)
 
@@ -364,7 +364,7 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
 
   names(absdiff_cols) <- paste0(tol_cols, "__absdiff")
   names(thresh_cols)  <- paste0(tol_cols, "__thresh")
-  names(ok_cols)      <- paste0(tol_cols, "__ok")
+  names(ok_cols)      <- datadiff_ok_col(tol_cols)
 
   cbind(cmp, list2DF(c(absdiff_cols, thresh_cols, ok_cols)))
 }

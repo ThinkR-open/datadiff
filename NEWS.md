@@ -2,6 +2,19 @@
 
 ## Robustness
 
+* Report construction hardening (all internal to `R/report.R`):
+  `datadiff_report_html()` now shares the `print()` memoization (it reads the
+  cached report and feeds the cache, instead of rebuilding agent + report on
+  every call); a genuine evaluation error on the real agent (`eval_error`,
+  where `n_failed` is NA) is propagated to the report instead of being
+  silently replaced by the synthetic all-pass branch and forced to FALSE; a
+  dead per-row count-injection block was removed (its fields were entirely
+  overwritten by the vectorised coverage block); and the `__ok`/`__eq`/
+  `__missing_col_`/`__type_mismatch_` naming conventions plus the default
+  warn/stop levels are now defined once in `R/constants.R` and shared by the
+  producers, the verdict consumers and the report mapping, so a one-sided
+  rename can no longer silently break the step mapping (issue #29).
+
 * `arrow_dataset_to_duckdb()` builds its SQL safely: Parquet file paths are
   quoted with `DBI::dbQuoteString()` (a path containing a quote, common in
   French like `l'export/`, broke the query with a raw SQL syntax error), the

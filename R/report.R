@@ -14,13 +14,13 @@ report_underlying_col <- function(col) {
   if (identical(col, "row_count_ok")) {
     return("<row_count>")
   }
-  if (startsWith(col, "__missing_col_")) {
-    return(sub("^__missing_col_", "", col))
+  if (startsWith(col, datadiff_prefix_missing_col)) {
+    return(sub(paste0("^", datadiff_prefix_missing_col), "", x = col))
   }
-  if (startsWith(col, "__type_mismatch_")) {
-    return(sub("^__type_mismatch_", "", col))
+  if (startsWith(col, datadiff_prefix_type_mismatch)) {
+    return(sub(paste0("^", datadiff_prefix_type_mismatch), "", x = col))
   }
-  sub("__(ok|eq)$", "", col)
+  sub(sprintf("(%s|%s)$", datadiff_suffix_ok, datadiff_suffix_eq), "", x = col)
 }
 
 # Build a pointblank agent whose report mirrors the coverage table.
@@ -33,17 +33,20 @@ report_underlying_col <- function(col) {
 # synthetic passing row is added for the rest. Without `real_agent`, a purely
 # synthetic count-only agent is produced (no extracts).
 build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
-                                warn_at = 1e-14, stop_at = 1e-14,
+                                warn_at = datadiff_default_warn_at, stop_at = datadiff_default_stop_at,
                                 real_agent = NULL) {
   n <- nrow(coverage)
 
   # Augment the real interrogated agent only when it has genuine failures
-  # (real extracts to preserve). On an all-pass comparison the real agent is the
+  # (real extracts to preserve) or evaluation errors (n_failed is NA there, so
+  # the count test alone would silently route a broken interrogation to the
+  # synthetic all-pass branch). On an all-pass comparison the real agent is the
   # minimal placeholder (a single col_exists step); cloning its template would
   # mislabel every value check as col_exists, so fall through to the synthetic
   # col_vals_equal build instead.
   if (!is.null(real_agent) &&
-      any(real_agent$validation_set$n_failed > 0, na.rm = TRUE)) {
+      (any(real_agent$validation_set$n_failed > 0, na.rm = TRUE) ||
+       any(real_agent$validation_set$eval_error, na.rm = TRUE))) {
     rvs <- real_agent$validation_set
     real_cols <- vapply(seq_len(nrow(rvs)), function(j) {
       report_underlying_col(rvs$column[[j]][1])
@@ -55,6 +58,8 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
     template <- rvs[1, , drop = FALSE]
     rows <- vector("list", n)
     new_extracts <- list()
+    real_eval_error   <- logical(n)
+    real_eval_warning <- logical(n)
     for (i in seq_len(n)) {
       col <- coverage$column[i]
       # Only value checks (tolerance / equality) map to a real step: that is
@@ -62,34 +67,30 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
       # structural checks (missing_column, type_mismatch, row_count) are
       # synthesized from coverage - mapping them to a real step would pull in
       # per-row dummy results (e.g. n_failed = nrow) that contradict coverage.
+      # Consequence: an eval_error on a structural step is intentionally not
+      # surfaced per-column (only value-step evaluation errors are).
       j <- if (coverage$check[i] %in% c("tolerance", "equality")) {
         match(col, real_cols)
       } else {
         NA_integer_
       }
       if (!is.na(j)) {
-        # Genuine interrogated step: keep it, and carry its real extract over to
-        # the new step index.
+        # Genuine interrogated step: keep it, carry its real extract over to
+        # the new step index, and remember its evaluation outcome (the
+        # vectorised coverage overwrite below must not mask a real
+        # eval_error/eval_warning behind FALSE).
         row <- rvs[j, , drop = FALSE]
+        real_eval_error[i]   <- isTRUE(rvs$eval_error[j])
+        real_eval_warning[i] <- isTRUE(rvs$eval_warning[j])
         old_key <- as.character(rvs$i[j])
         if (!is.null(old_extracts[[old_key]])) {
           new_extracts[[as.character(i)]] <- old_extracts[[old_key]]
         }
       } else {
         # Column the targeted agent did not validate (it passed): synthesise a
-        # passing row from the real-row template.
+        # passing row from the real-row template. Every count/verdict field is
+        # set authoritatively from coverage in the vectorised block below.
         row <- template
-        row$eval_error   <- FALSE
-        row$eval_warning <- FALSE
-        row$n        <- as.numeric(coverage$n[i])
-        row$n_passed <- as.numeric(coverage$n[i] - coverage$n_failed[i])
-        row$n_failed <- as.numeric(coverage$n_failed[i])
-        row$f_passed <- if (coverage$n[i] > 0) row$n_passed / coverage$n[i] else 1
-        row$f_failed <- if (coverage$n[i] > 0) coverage$n_failed[i] / coverage$n[i] else 0
-        row$all_passed <- coverage$n_failed[i] == 0L
-        row$warn   <- FALSE
-        row$stop   <- FALSE
-        row$notify <- FALSE
       }
       row$column <- list(coverage$column[i])
       row$label  <- coverage$check[i]
@@ -113,8 +114,8 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
     new_vs$warn         <- coverage$n_failed > 0L & new_vs$f_failed >= warn_at
     new_vs$stop         <- coverage$n_failed > 0L & new_vs$f_failed >= stop_at
     new_vs$notify       <- rep(FALSE, nrow(new_vs))
-    new_vs$eval_error   <- rep(FALSE, nrow(new_vs))
-    new_vs$eval_warning <- rep(FALSE, nrow(new_vs))
+    new_vs$eval_error   <- real_eval_error
+    new_vs$eval_warning <- real_eval_warning
     real_agent$validation_set <- new_vs
     real_agent$extracts <- new_extracts
     return(real_agent)
@@ -180,7 +181,7 @@ mark_agent_interrogated <- function(agent) {
 # class (print dispatches to print.datadiff_report) and stash what is needed to
 # render the full report, plus a (reference-semantics) environment for caching.
 as_datadiff_report <- function(reponse, coverage, label, lang, locale,
-                               warn_at = 1e-14, stop_at = 1e-14) {
+                               warn_at = datadiff_default_warn_at, stop_at = datadiff_default_stop_at) {
   attr(reponse, "datadiff_coverage") <- coverage
   attr(reponse, "datadiff_label")    <- label
   attr(reponse, "datadiff_lang")     <- lang
@@ -205,8 +206,8 @@ datadiff_render_report <- function(x) {
         label    = attr(x, "datadiff_label") %||% "datadiff report",
         lang     = attr(x, "datadiff_lang") %||% "fr",
         locale   = attr(x, "datadiff_locale") %||% "fr_FR",
-        warn_at  = attr(x, "datadiff_warn_at") %||% 1e-14,
-        stop_at  = attr(x, "datadiff_stop_at") %||% 1e-14,
+        warn_at  = attr(x, "datadiff_warn_at") %||% datadiff_default_warn_at,
+        stop_at  = attr(x, "datadiff_stop_at") %||% datadiff_default_stop_at,
         real_agent = x
       )
     )
@@ -251,16 +252,18 @@ datadiff_report_html <- function(res, file = NULL) {
     stop("`res` has no `coverage`; was it produced by compare_datasets_from_yaml()?")
   }
   reponse <- res$reponse
-  agent <- build_report_agent(
-    coverage = coverage,
-    label    = attr(reponse, "datadiff_label") %||% "datadiff report",
-    lang     = attr(reponse, "datadiff_lang") %||% "fr",
-    locale   = attr(reponse, "datadiff_locale") %||% "fr_FR",
-    warn_at  = attr(reponse, "datadiff_warn_at") %||% 1e-14,
-    stop_at  = attr(reponse, "datadiff_stop_at") %||% 1e-14,
-    real_agent = reponse
-  )
-  report <- pointblank::get_agent_report(agent)
+  report <- if (inherits(reponse, "datadiff_report")) {
+    # Share the print() memoization: read the cached report when a print
+    # already built it, and feed the cache otherwise
+    datadiff_render_report(reponse)
+  } else {
+    # No lazy-report wrapper (hand-assembled res): one-shot synthetic build
+    pointblank::get_agent_report(build_report_agent(
+      coverage = coverage,
+      label = "datadiff report",
+      real_agent = reponse
+    ))
+  }
   if (!is.null(file)) {
     pointblank::export_report(report, filename = file, quiet = TRUE)
   }
