@@ -40,6 +40,19 @@
 
 ## Breaking changes
 
+* The local (data.frame) path now applies the same NA semantics as the lazy
+  path and the numeric tolerance kernel to **equality** columns: a one-sided
+  NA (a value facing a missing value, including candidate rows with no
+  reference match after the key join) is always a difference; a two-sided NA
+  follows `na_equal`. Previously, with `na_equal = TRUE` (the default), any NA
+  on either side passed on the local path (`na_pass` semantics), while the
+  same data failed on the lazy path: identical datasets could get opposite
+  verdicts depending on the backend. Comparisons that relied on one-sided NA
+  passing locally will now fail; the two-sided NA behavior is unchanged.
+  On the local failure path, `pointblank::get_data_extracts()` output for a
+  failing equality column now also carries its `<col>__eq` boolean column
+  (as the lazy path always did) (issue #14).
+
 * `compare_datasets_from_yaml()` now raises an explicit error when one or more
   key columns are absent from either dataset, naming the missing column(s) and
   the dataset(s) concerned, on every code path (with or without an explicit

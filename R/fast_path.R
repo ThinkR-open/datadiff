@@ -1,11 +1,12 @@
 # Per-column pass predicates, shared by the all-pass short-circuit and the
-# failing-column selection. They reproduce pointblank's verdict exactly:
+# failing-column selection.
 #   - a tolerance column passes iff every <col>__ok value is TRUE (NA counts as
 #     a failure, matching col_vals_equal(..., na_pass = FALSE));
-#   - an equality column passes iff its pre-computed <col>__eq column is all TRUE
-#     (lazy path) or, when no __eq exists (local path), the raw comparison holds
-#     under the same na_pass = na_equal semantics pointblank uses (any NA on
-#     either side passes iff na_equal).
+#   - an equality column passes iff its pre-computed <col>__eq column is all
+#     TRUE (lazy path) or, when no __eq exists (local path), the raw comparison
+#     holds under the shared NA semantics: a one-sided NA is always a
+#     difference, a two-sided NA follows na_equal. This matches both the
+#     numeric tolerance kernel and the lazy SQL CASE WHEN.
 
 # Per-row boolean outcome of a tolerance column: the pre-computed <col>__ok
 # vector. NA (never produced by construction) would count as a failure, matching
@@ -15,9 +16,8 @@ tol_col_bool <- function(tbl, col) {
 }
 
 # Per-row boolean outcome of an equality column, resolved to TRUE/FALSE (no NA):
-# the pre-computed <col>__eq vector (lazy path) or, when absent (local path), the
-# raw comparison under the same na_pass = na_equal semantics pointblank uses
-# (any NA on either side passes iff na_equal).
+# the pre-computed <col>__eq vector (lazy path) or, when absent (local path),
+# the raw comparison with one-sided NA = FALSE and two-sided NA = na_equal.
 eq_col_bool <- function(tbl, col, ref_suffix, na_equal) {
   eq_precomputed <- tbl[[paste0(col, "__eq")]]
   if (!is.null(eq_precomputed)) {
@@ -25,8 +25,15 @@ eq_col_bool <- function(tbl, col, ref_suffix, na_equal) {
   }
   cand_vals <- tbl[[col]]
   ref_vals  <- tbl[[paste0(col, ref_suffix)]]
+  cand_na   <- is.na(cand_vals)
+  ref_na    <- is.na(ref_vals)
   cmp_res   <- cand_vals == ref_vals
-  ifelse(is.na(cmp_res), na_equal, cmp_res)
+  # Both values present and equal; any NA resolves below
+  out <- !is.na(cmp_res) & cmp_res
+  # Two-sided NA follows na_equal; a one-sided NA stays FALSE (a value facing
+  # a missing value is a difference)
+  out[cand_na & ref_na] <- na_equal
+  out
 }
 
 tol_col_passes <- function(tbl, col) {

@@ -700,6 +700,18 @@ compare_datasets_from_yaml <- function(data_reference,
       tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
       ref_suffix = ref_suffix, na_equal = na_equal
     )
+    # Local path: materialise the __eq boolean for the failing equality
+    # columns so the pointblank step validates the exact boolean the verdict
+    # used (one-sided NA fails, two-sided NA follows na_equal). The lazy path
+    # already carries __eq columns; col_vals_equal(na_pass = ...) alone cannot
+    # express these semantics.
+    if (!is_lazy && length(fail$eq) > 0) {
+      for (c in fail$eq) {
+        cmp_for_agent[[paste0(c, "__eq")]] <- eq_col_bool(
+          cmp_for_agent, col = c, ref_suffix = ref_suffix, na_equal = na_equal
+        )
+      }
+    }
     agent <- setup_pointblank_agent(
       cmp_for_agent,
       cols_reference,
