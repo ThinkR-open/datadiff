@@ -10,9 +10,16 @@
 
 # Per-row boolean outcome of a tolerance column: the pre-computed <col>__ok
 # vector. NA (never produced by construction) would count as a failure, matching
-# col_vals_equal(..., na_pass = FALSE).
+# col_vals_equal(..., na_pass = FALSE). A missing __ok column is a hard internal
+# error: all(NULL) is TRUE, so returning NULL would silently turn a dropped
+# column into a false all-pass.
 tol_col_bool <- function(tbl, col) {
-  tbl[[paste0(col, "__ok")]]
+  b <- tbl[[paste0(col, "__ok")]]
+  if (is.null(b)) {
+    stop(sprintf("internal error: boolean column '%s__ok' missing", col),
+         call. = FALSE)
+  }
+  b
 }
 
 # Per-row boolean outcome of an equality column, resolved to TRUE/FALSE (no NA):
@@ -25,6 +32,22 @@ eq_col_bool <- function(tbl, col, ref_suffix, na_equal) {
   }
   cand_vals <- tbl[[col]]
   ref_vals  <- tbl[[paste0(col, ref_suffix)]]
+  # Same rationale as tol_col_bool: a missing pair must fail loudly, not
+  # yield NULL and a silent all-pass downstream
+  if (is.null(cand_vals) || is.null(ref_vals)) {
+    missing_cols <- c(
+      if (is.null(cand_vals)) {
+        sprintf("'%s'", col)
+      },
+      if (is.null(ref_vals)) {
+        sprintf("'%s%s'", col, ref_suffix)
+      }
+    )
+    stop(sprintf(
+      "internal error: equality column(s) %s missing (no precomputed '%s__eq' either)",
+      paste(missing_cols, collapse = " and "), col
+    ), call. = FALSE)
+  }
   cand_na   <- is.na(cand_vals)
   ref_na    <- is.na(ref_vals)
   cmp_res   <- cand_vals == ref_vals

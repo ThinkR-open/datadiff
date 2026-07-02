@@ -1,5 +1,16 @@
 # datadiff (development version)
 
+## Robustness
+
+* A missing `__ok`/`__eq` boolean validation column now raises an explicit
+  internal error instead of silently reading as an all-pass (`all(NULL)` is
+  `TRUE`, and a dropped column previously produced a PASS row with `n = 0` in
+  the coverage: the worst failure mode for a non-regression tool). The lazy
+  slim-table projection uses `all_of()` (loud) instead of `any_of()` (silent
+  drop); posing that guard immediately surfaced a latent phantom name in the
+  projection (`paste0(character(0), "__ok")` yields `"__ok"`) that `any_of()`
+  had been eating since 0.4.8 (issue #17).
+
 ## Bug fixes
 
 * Factor columns are now compared as the character values they display:

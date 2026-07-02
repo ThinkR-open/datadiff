@@ -632,12 +632,26 @@ compare_datasets_from_yaml <- function(data_reference,
   is_lazy <- is_non_local(cmp)
   cmp_for_agent <- cmp
   if (is_lazy) {
+    # Length guards: paste0(character(0), "__ok") yields "__ok" (recycle0 is
+    # FALSE by default), a phantom name the previous any_of() silently ate
+    suffix_all <- function(cols, suffix) {
+      if (length(cols) == 0) {
+        return(character(0))
+      }
+      paste0(cols, suffix)
+    }
     val_cols <- c(
-      paste0(tol_cols, "__ok"),
-      paste0(eq_cols, "__eq"),
-      if (isTRUE(row_validation_info$check_count)) "row_count_ok" else character(0)
+      suffix_all(tol_cols, suffix = "__ok"),
+      suffix_all(eq_cols, suffix = "__eq"),
+      if (isTRUE(row_validation_info$check_count)) {
+        "row_count_ok"
+      } else {
+        character(0)
+      }
     )
-    cmp_slim      <- dplyr::select(cmp, dplyr::any_of(val_cols))
+    # all_of(): a validation column silently dropped here would later read as
+    # NULL by the boolean accessors, i.e. a false all-pass; fail loudly instead
+    cmp_slim      <- dplyr::select(cmp, dplyr::all_of(val_cols))
     tmp_tbl_name  <- datadiff_tmp_table_name()
     # compute() sends CREATE TEMP TABLE AS SELECT ... to DuckDB: all computation
     # (join, boolean expressions) happens inside DuckDB's process, with disk
