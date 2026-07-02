@@ -595,8 +595,15 @@ compare_datasets_from_yaml <- function(data_reference,
   #    construction + SQL rendering), the dominant cost on wide tables; the
   #    templated SQL is O(1) dbplyr work and lets the database do the rest.
   cmp <- if (is_non_local(cmp)) {
+    # Numeric equality columns get NaN-aware NA rules in the SQL (matching
+    # the local path, where is.na(NaN) is TRUE); isnan() on a non-numeric
+    # column would be a SQL type error.
+    eq_num_cols <- eq_cols[vapply(X = eq_cols, FUN = function(nm) {
+      is.numeric(schema_ref[[nm]])
+    }, FUN.VALUE = logical(1))]
     add_bool_cols_sql(cmp, tol_cols, eq_cols,
-                      col_rules, ref_suffix, na_equal)
+                      col_rules, ref_suffix, na_equal,
+                      eq_num_cols = eq_num_cols)
   } else {
     add_ok_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
   }

@@ -2,6 +2,19 @@
 
 ## Bug fixes
 
+* The lazy SQL booleans now reproduce the R tolerance kernel's NaN/Inf
+  semantics: same-sign infinities pass, a one-sided NA/NaN/Inf fails, NaN on
+  both sides follows `na_equal`. The previous CASE WHEN only handled SQL NULL,
+  and NaN is a regular float in DuckDB (`NaN = NaN` is true, NaN sorts above
+  everything): Parquet data containing NaN or infinities could silently get
+  the opposite verdict on the lazy path (false PASS on one-sided NaN/Inf,
+  false FAIL on matching infinities). NaN detection uses `isnan()` on DuckDB;
+  backends without NaN storage (SQLite) keep the NULL rules, and infinity
+  detection falls back to a `> DBL_MAX` comparison there. Numeric equality
+  (non-tolerance) columns get the same NaN-aware NA rules, matching the local
+  path. The new equivalence tests use the R kernel as oracle on a full
+  NaN/Inf/NA grid, on DuckDB and SQLite (issue #13).
+
 * The lazy path no longer leaks its internal temp table on a user-supplied
   connection: the slim boolean table is dropped at the end of each call (the
   Arrow path already closed its private connection). Its name is now derived
