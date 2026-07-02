@@ -166,6 +166,18 @@ failed_rows
 The `type = "pass"` variant returns rows that passed all steps. This is
 useful to understand the scope of the problem before investigating further.
 
+For each failing tolerance column, the step extracts returned by
+`pointblank::get_data_extracts()` (and the CSV download in the HTML report)
+include two diagnostic columns next to the candidate and reference values:
+`<col>__absdiff`, the measured absolute deviation, and `<col>__thresh`, the
+threshold that was applied. These are computed for the failing columns only,
+so wide all-pass comparisons pay no extra cost.
+
+```{r failing-extracts}
+extracts <- pointblank::get_data_extracts(result_fail$reponse)
+extracts[[1]]
+```
+
 ### Controlling how many failing rows are extracted
 
 For large datasets, extracting all failing rows can consume significant memory.

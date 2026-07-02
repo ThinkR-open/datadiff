@@ -557,6 +557,17 @@ compare_datasets_from_yaml <- function(data_reference,
       tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
       ref_suffix = ref_suffix, na_equal = na_equal
     )
+    # Materialise the measured deviation (<col>__absdiff) and applied threshold
+    # (<col>__thresh) for the FAILING tolerance columns only, so the extracts
+    # and the report CSV show the explicit gap (as in <= 0.4.7) at a cost
+    # proportional to the failing columns, not the table width. The lazy path
+    # is excluded: its agent table is the slim boolean collect(), which never
+    # carried the original values nor these diagnostics.
+    if (!is_lazy && length(fail$tol) > 0) {
+      cmp_for_agent <- add_diff_columns(
+        cmp_for_agent, fail$tol, col_rules, ref_suffix, na_equal
+      )
+    }
     agent <- setup_pointblank_agent(
       cmp_for_agent,
       cols_reference,
