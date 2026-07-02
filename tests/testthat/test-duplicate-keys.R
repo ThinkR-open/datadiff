@@ -80,6 +80,25 @@ test_that("lazy duplicate detection works when the key column is named 'n'", {
   expect_null(find_duplicate_keys(dplyr::tbl(con, "t_n_uniq"), "n"))
 })
 
+test_that("the reserved count name itself cannot collide with a key column", {
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  # A key literally named like the reserved count column must not reproduce
+  # the value-vs-count confusion on a different name
+  df <- data.frame(a = c(100, 100, 200), v = 1:3)
+  names(df)[1] <- "..datadiff_n"
+  duckdb::dbWriteTable(con, "t_reserved", df)
+  info <- find_duplicate_keys(dplyr::tbl(con, "t_reserved"), "..datadiff_n")
+  expect_equal(info$n_dup_keys, 1L)
+  expect_equal(info$n_dup_rows, 2L)
+  # The example must show the duplicated KEY VALUE (100), not the count (2):
+  # count(name = <grouping column>) silently replaces the key column
+  expect_equal(info$examples, "..datadiff_n = 100")
+})
+
 test_that("lazy_nrow works on a table with a column named 'n'", {
   skip_if_not_installed("duckdb")
   skip_if_not_installed("dbplyr")

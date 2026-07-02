@@ -26,9 +26,14 @@ find_duplicate_keys <- function(data, key) {
   if (is_non_local(data)) {
     # Reserved count name: count()'s default "n" collides with a user column
     # named "n" (count() then stores its result in "nn", and a key named "n"
-    # would be filtered on its own values instead of the count). Assumes no
-    # key column is itself named "..datadiff_n".
+    # would be filtered on its own values instead of the count). The reserved
+    # name is extended until it differs from every key column, because
+    # count(name = <grouping column>) silently REPLACES that grouping column
+    # with the count.
     count_col <- "..datadiff_n"
+    while (count_col %in% key) {
+      count_col <- paste0(count_col, "_")
+    }
     dups <- data %>%
       dplyr::count(dplyr::across(dplyr::all_of(key)), name = count_col) %>%
       dplyr::filter(.data[[count_col]] > 1L) %>%
