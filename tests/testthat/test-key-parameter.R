@@ -117,8 +117,23 @@ by_type:
   # Same scenario without an explicit YAML path (auto-generated template)
   expect_error(
     compare_datasets_from_yaml(ref, cand_no_id, key = "id"),
-    regexp = "Key column\\(s\\) not found"
+    regexp = "missing in data_candidate"
   )
+
+  # Without an explicit YAML path, a key absent from the *reference* must get
+  # the same explicit error format (not the reference-only error of
+  # write_rules_template on the auto-generated-template path)
+  ref_no_id <- data.frame(idx = 1:3, value = c(10.0, 20.0, 30.0))
+  cand_id   <- data.frame(id = 1:3, value = c(10.1, 20.1, 30.1))
+  err_ref <- tryCatch(
+    compare_datasets_from_yaml(ref_no_id, cand_id, key = "id"),
+    error = function(e) {
+      conditionMessage(e)
+    }
+  )
+  expect_match(err_ref, "'id'", fixed = TRUE)
+  expect_match(err_ref, "missing in data_reference", fixed = TRUE)
+  expect_no_match(err_ref, "data_candidate", fixed = TRUE)
 
   # Multi-column key with a single absent column: only that column is reported
   ref_multi  <- data.frame(id = 1:3, grp = 1:3, value = 1:3)
@@ -131,6 +146,31 @@ by_type:
   )
   expect_match(err_multi, "'grp'", fixed = TRUE)
   expect_no_match(err_multi, "'id'", fixed = TRUE)
+})
+
+test_that("compare_datasets_from_yaml rejects empty or non-character keys", {
+  ref  <- data.frame(id = 1:3, value = c(10.0, 20.0, 30.0))
+  cand <- data.frame(id = 1:3, value = c(10.1, 20.1, 30.1))
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  write_rules_template(ref, key = "id", path = yaml_path)
+
+  # An empty key must not silently fall through to a keyless cross join
+  expect_error(
+    compare_datasets_from_yaml(ref, cand, key = character(0), path = yaml_path),
+    regexp = "non-empty character vector"
+  )
+  expect_error(
+    compare_datasets_from_yaml(ref, cand, key = character(0)),
+    regexp = "non-empty character vector"
+  )
+
+  # A non-character key gets a clear type error, not a missing-column error
+  expect_error(
+    compare_datasets_from_yaml(ref, cand, key = 1L, path = yaml_path),
+    regexp = "non-empty character vector"
+  )
 })
 
 test_that("key parameter takes precedence over YAML in edge cases", {

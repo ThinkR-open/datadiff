@@ -111,6 +111,49 @@ read_rules <- function(path) {
   r
 }
 
+#' Validate a comparison key against both datasets
+#'
+#' Shared guard for every code path that consumes a key: checks the type and
+#' emptiness of the key, then its presence in both datasets, and raises an
+#' explicit error naming the missing column(s) and the dataset(s) concerned.
+#'
+#' @param key Character vector of key column names.
+#' @param ref_cols Column names of the reference dataset.
+#' @param cand_cols Column names of the candidate dataset.
+#' @return \code{NULL}, invisibly. Called for its side effect (error).
+#' @noRd
+validate_comparison_key <- function(key, ref_cols, cand_cols) {
+  if (!is.character(key) || length(key) == 0) {
+    stop(
+      "Parameter 'key' must be a non-empty character vector specifying column name(s) to use as join key(s).",
+      call. = FALSE
+    )
+  }
+  missing_key_ref  <- setdiff(key, ref_cols)
+  missing_key_cand <- setdiff(key, cand_cols)
+  if (length(missing_key_ref) > 0 || length(missing_key_cand) > 0) {
+    describe_missing <- function(cols, dataset_name) {
+      if (length(cols) == 0) {
+        return(NULL)
+      }
+      sprintf(
+        "%s missing in %s",
+        paste(sprintf("'%s'", cols), collapse = ", "),
+        dataset_name
+      )
+    }
+    details <- c(
+      describe_missing(missing_key_ref, dataset_name = "data_reference"),
+      describe_missing(missing_key_cand, dataset_name = "data_candidate")
+    )
+    stop(sprintf(
+      "Key column(s) not found: %s.",
+      paste(details, collapse = "; ")
+    ), call. = FALSE)
+  }
+  invisible(NULL)
+}
+
 #' Compare datasets using YAML validation rules
 #'
 #' Main function for comparing reference and candidate datasets using configurable
@@ -266,6 +309,18 @@ compare_datasets_from_yaml <- function(data_reference,
       data_candidate <- arrow_dataset_to_duckdb(data_candidate, fresh_con, "datadiff_cand")
   }
 
+  # Validate the key argument against BOTH datasets before any other consumer:
+  # the auto-generated-template path (path = NULL) would otherwise reach
+  # write_rules_template() first, which validates the reference only and with
+  # a less specific error.
+  if (!is.null(key)) {
+    validate_comparison_key(
+      key,
+      ref_cols = get_col_names(data_reference),
+      cand_cols = get_col_names(data_candidate)
+    )
+  }
+
   # If no path provided, create a temporary YAML with default rules
   if (is.null(path)) {
     path <- tempfile(fileext = ".yaml")
@@ -405,28 +460,13 @@ compare_datasets_from_yaml <- function(data_reference,
   row_validation_info <- validate_row_counts(data_reference_p, data_candidate_p, rules)
 
   if (!is.null(key)) {
-    missing_key_ref  <- setdiff(key, get_col_names(data_reference_p))
-    missing_key_cand <- setdiff(key, get_col_names(data_candidate_p))
-    if (length(missing_key_ref) > 0 || length(missing_key_cand) > 0) {
-      describe_missing <- function(cols, dataset_name) {
-        if (length(cols) == 0) {
-          return(NULL)
-        }
-        sprintf(
-          "%s missing in %s",
-          paste(sprintf("'%s'", cols), collapse = ", "),
-          dataset_name
-        )
-      }
-      details <- c(
-        describe_missing(missing_key_ref, dataset_name = "data_reference"),
-        describe_missing(missing_key_cand, dataset_name = "data_candidate")
-      )
-      stop(sprintf(
-        "Key column(s) not found: %s.",
-        paste(details, collapse = "; ")
-      ), call. = FALSE)
-    }
+    # Re-validated here because the key may come from the YAML rules
+    # (defaults$keys), which the argument-level check upstream cannot see.
+    validate_comparison_key(
+      key,
+      ref_cols = get_col_names(data_reference_p),
+      cand_cols = get_col_names(data_candidate_p)
+    )
 
     # Join candidate to reference on key to handle different row counts
     cmp <- left_join(data_candidate_p, data_reference_p, by = key, suffix = c("", ref_suffix))
