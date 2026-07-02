@@ -17,6 +17,11 @@ test_that("explicit label argument wins over the YAML label", {
   # Without an explicit argument, the YAML label applies
   res_yaml <- compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path)
   expect_identical(res_yaml$reponse$label, "yaml label")
+
+  # An empty string means "no explicit label": the YAML label still applies
+  res_empty <- compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path,
+                                          label = "")
+  expect_identical(res_empty$reponse$label, "yaml label")
 })
 
 test_that("YAML 'keys' field is read without $ partial matching", {
@@ -44,18 +49,22 @@ by_type:
   old <- options(warnPartialMatchDollar = TRUE)
   on.exit(options(old), add = TRUE)
 
-  warns <- character(0)
+  # Muffle ONLY partial-match warnings (the tested regression signal);
+  # any other warning stays audible and would surface in the test output
+  partial_warns <- character(0)
   withCallingHandlers(
     {
       res <- compare_datasets_from_yaml(ref, cand_shuffled, path = yaml_path)
     },
     warning = function(w) {
-      warns <<- c(warns, conditionMessage(w))
-      invokeRestart("muffleWarning")
+      if (grepl("partial match", conditionMessage(w))) {
+        partial_warns <<- c(partial_warns, conditionMessage(w))
+        invokeRestart("muffleWarning")
+      }
     }
   )
   expect_true(res$all_passed)
-  expect_false(any(grepl("partial match", warns)))
+  expect_length(partial_warns, 0L)
 })
 
 test_that("an invalid label argument is rejected with a clear error", {

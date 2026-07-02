@@ -199,6 +199,12 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' error), while YAML-sourced key values are coerced to character (YAML being
 #' stringly typed, `keys: [2024]` designates the column named "2024").
 #'
+#' Note for `path = NULL`: the auto-generated rules template itself carries a
+#' label (`"Comparison with default rules"`, or the explicit `label` argument),
+#' so that is the label effectively used without a YAML file; the built-in
+#' default above only applies when a YAML file is supplied with an empty or
+#' missing `defaults$label`.
+#'
 #' @param data_reference Reference dataframe, tibble, or lazy table (tbl_lazy)
 #' @param data_candidate Candidate dataframe to validate against reference
 #' @param key Optional character vector of column names to use as join keys for
@@ -403,7 +409,12 @@ compare_datasets_from_yaml <- function(data_reference,
   na_equal <- isTRUE(rules$defaults$na_equal)
   ignore_columns <- rules$defaults$ignore_columns %||% character(0)
 
-  # Precedence: explicit argument > YAML defaults > built-in default
+  # Precedence: explicit argument > YAML defaults > built-in default.
+  # An empty string means "no explicit label" (same convention as
+  # write_rules_template), so it must not shadow the YAML label.
+  if (!is.null(label) && label == "") {
+    label <- NULL
+  }
   label <- label %||% rules$defaults[["label"]]
   if (is.null(label) || label == "") {
     label <- "Comparing candidate vs reference"

@@ -124,6 +124,12 @@ When the YAML contains both \code{keys} and the legacy singular \code{key} field
 The \code{key} argument must be a character vector (a non-character value is an
 error), while YAML-sourced key values are coerced to character (YAML being
 stringly typed, \verb{keys: [2024]} designates the column named "2024").
+
+Note for \code{path = NULL}: the auto-generated rules template itself carries a
+label (\code{"Comparison with default rules"}, or the explicit \code{label} argument),
+so that is the label effectively used without a YAML file; the built-in
+default above only applies when a YAML file is supplied with an empty or
+missing \code{defaults$label}.
 }
 
 \examples{
