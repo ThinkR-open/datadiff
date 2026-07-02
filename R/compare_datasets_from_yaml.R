@@ -171,7 +171,9 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' @param stop_at Stop threshold as fraction of failing tests (default: 1e-14)
 #' @param ref_suffix Suffix for reference columns in comparison dataframe (default: "__reference")
 #' @param label Descriptive label for the validation report
-#' @param error_msg_no_key Error message when datasets have different row counts without keys
+#' @param error_msg_no_key Text of the error raised when a positional (key-less)
+#'   comparison receives datasets with different row counts; the actual row
+#'   counts of both datasets are appended to this text.
 #' @param lang Language code for pointblank reports. Defaults to the
 #'   \code{datadiff.lang} option if set, otherwise \code{"fr"}. Override globally
 #'   with \code{options(datadiff.lang = "en")}. Supported values include
@@ -471,19 +473,33 @@ compare_datasets_from_yaml <- function(data_reference,
     # Join candidate to reference on key to handle different row counts
     cmp <- left_join(data_candidate_p, data_reference_p, by = key, suffix = c("", ref_suffix))
   } else {
-    # For non-keyed comparison, collect non-local tables (positional join requires local data)
-    if (is_non_local(data_reference_p)) {
-      message("Note: positional comparison requires collecting non-local tables into memory.")
-      data_reference_p <- dplyr::collect(data_reference_p)
-      data_candidate_p <- dplyr::collect(data_candidate_p)
-    }
-    # Use pre-computed counts from validate_row_counts (avoids a second nrow() on lazy)
+    # Row-count mismatch is decidable from the counts precomputed by
+    # validate_row_counts(): abort before the potentially expensive collect
+    # of non-local tables below.
     if (row_validation_info$ref_count != row_validation_info$cand_count) {
-      message(error_msg_no_key)
+      stop(sprintf(
+        "%s (data_reference: %s rows, data_candidate: %s rows).",
+        error_msg_no_key,
+        row_validation_info$ref_count,
+        row_validation_info$cand_count
+      ), call. = FALSE)
+    }
+    # For non-keyed comparison, collect non-local tables on BOTH sides
+    # (positional binding requires local data on each side).
+    if (is_non_local(data_reference_p) || is_non_local(data_candidate_p)) {
+      message("Note: positional comparison requires collecting non-local tables into memory.")
+      if (is_non_local(data_reference_p)) {
+        data_reference_p <- dplyr::collect(data_reference_p)
+      }
+      if (is_non_local(data_candidate_p)) {
+        data_candidate_p <- dplyr::collect(data_candidate_p)
+      }
     }
     cmp <- data_candidate_p
-    for (c in common_cols) {
-      cmp[[paste0(c, ref_suffix)]] <- data_reference_p[[c]]
+    if (length(common_cols) > 0) {
+      ref_block <- data_reference_p[, common_cols, drop = FALSE]
+      names(ref_block) <- paste0(common_cols, ref_suffix)
+      cmp <- dplyr::bind_cols(cmp, ref_block)
     }
   }
 

@@ -44,7 +44,9 @@ generated automatically based on the reference dataset structure.}
 
 \item{label}{Descriptive label for the validation report}
 
-\item{error_msg_no_key}{Error message when datasets have different row counts without keys}
+\item{error_msg_no_key}{Text of the error raised when a positional (key-less)
+comparison receives datasets with different row counts; the actual row
+counts of both datasets are appended to this text.}
 
 \item{lang}{Language code for pointblank reports. Defaults to the
 \code{datadiff.lang} option if set, otherwise \code{"fr"}. Override globally

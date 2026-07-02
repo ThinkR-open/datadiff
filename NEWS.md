@@ -1,5 +1,19 @@
 # datadiff (development version)
 
+## Bug fixes
+
+* A positional (key-less) comparison of datasets with different row counts now
+  raises a single clear error built from `error_msg_no_key` and mentioning both
+  row counts. It previously emitted `error_msg_no_key` as an informational
+  message and then crashed on an opaque internal column assignment
+  ("replacement has X rows, data has Y"). The error is raised before any
+  materialisation of non-local tables (the counts are already known), and the
+  collect guard now covers both sides: a positional comparison mixing a local
+  reference with a lazy candidate (or vice versa) previously skipped the
+  candidate collection and failed downstream. On the valid positional path,
+  the reference columns are now appended with a single bind instead of a
+  per-column assignment loop (issue #15).
+
 ## Breaking changes
 
 * `compare_datasets_from_yaml()` now raises an explicit error when one or more
