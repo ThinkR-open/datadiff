@@ -23,12 +23,13 @@
 #'   logical vector \code{ok}.
 #' @noRd
 compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equal) {
+  # is.na() covers NaN in R, so the NA masks subsume the NaN ones: NaN-specific
+  # masks would be redundant (both_nan is a subset of both_na, one_nan of
+  # one_na) and are not computed.
   both_na  <- is.na(cand_vals) & is.na(ref_vals)
   one_na   <- is.na(cand_vals) | is.na(ref_vals)
   both_inf <- is.infinite(cand_vals) & is.infinite(ref_vals)
   same_inf <- both_inf & (sign(cand_vals) == sign(ref_vals))
-  both_nan <- is.nan(cand_vals) & is.nan(ref_vals)
-  one_nan  <- is.nan(cand_vals) | is.nan(ref_vals)
   one_inf  <- is.infinite(cand_vals) | is.infinite(ref_vals)
 
   absdiff <- abs(cand_vals - ref_vals)
@@ -41,10 +42,9 @@ compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equa
   within_tol <- absdiff <= thresh + fp_correction
 
   if (na_equal) {
-    ok <- both_na | both_nan | same_inf |
-      (!one_na & !one_nan & !one_inf & within_tol)
+    ok <- both_na | same_inf | (!one_na & !one_inf & within_tol)
   } else {
-    ok <- same_inf | (!one_na & !one_nan & !one_inf & within_tol)
+    ok <- same_inf | (!one_na & !one_inf & within_tol)
   }
 
   list(absdiff = absdiff, thresh = thresh, ok = ok)
@@ -52,12 +52,19 @@ compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equa
 
 #' Within-tolerance boolean for one column (hot path, ok only)
 #'
-#' Returns ONLY the boolean within-tolerance vector (not absdiff/thresh), with a
-#' fast path for the common case of a column with no NA/NaN/Inf: the dozen
-#' special-value passes of `compute_tolerance_col()` are skipped and the result
-#' reduces to `abs(cand - ref) <= thresh + fp`. Falls back to the full kernel
-#' (taking only its `$ok`) when special values are present, so the result is
-#' identical to `compute_tolerance_col(...)$ok` in every case.
+#' Returns ONLY the boolean within-tolerance vector (not absdiff/thresh), with
+#' two fast paths:
+#' - no NA/NaN/Inf at all: the result reduces to
+#'   `abs(cand - ref) <= thresh + fp` (3 vector passes);
+#' - NA and/or NaN present but no infinity (the most common real-data case):
+#'   the raw comparison yields NA exactly where an NA or NaN is involved, so
+#'   one `ok[is.na(ok)] <- FALSE` pass plus the two-sided correction
+#'   reproduces the kernel at a fraction of its passes (`is.na()` covers NaN,
+#'   so NaN follows the NA rules identically on both paths).
+#'
+#' Only infinities fall back to the full kernel (taking only its `$ok`;
+#' `abs(Inf - Inf)` is NaN but same-sign infinities must PASS), so the result
+#' is identical to `compute_tolerance_col(...)$ok` in every case.
 #'
 #' @inheritParams compute_tolerance_col
 #' @return Logical vector, the same as `compute_tolerance_col(...)$ok`.
@@ -68,6 +75,22 @@ compute_tolerance_ok <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equal
     thresh <- abs_tol + rel_tol * abs(ref_vals)
     fp     <- 8 * .Machine$double.eps * abs(ref_vals)
     return(abs(cand_vals - ref_vals) <= thresh + fp)
+  }
+  if (!any(is.infinite(cand_vals)) && !any(is.infinite(ref_vals))) {
+    # NA/NaN present but no Inf. NaN needs no dedicated guard: is.na() covers
+    # NaN in R, so NaN follows the NA rules identically here and in the
+    # kernel. Only Inf diverges (abs(Inf - Inf) is NaN, but same-sign
+    # infinities must PASS), hence the infinity-only fallback test.
+    thresh <- abs_tol + rel_tol * abs(ref_vals)
+    fp     <- 8 * .Machine$double.eps * abs(ref_vals)
+    ok <- abs(cand_vals - ref_vals) <= thresh + fp
+    # NA wherever an NA/NaN was involved: a one-sided one is a difference...
+    ok[is.na(ok)] <- FALSE
+    # ...and a two-sided one follows na_equal
+    if (na_equal) {
+      ok[is.na(cand_vals) & is.na(ref_vals)] <- TRUE
+    }
+    return(ok)
   }
   compute_tolerance_col(cand_vals, ref_vals, abs_tol, rel_tol, na_equal)$ok
 }

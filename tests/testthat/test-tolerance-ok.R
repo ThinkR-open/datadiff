@@ -30,6 +30,42 @@ test_that("special values fall back and still match the full kernel", {
   expect_ok_equiv(Inf, Inf, 0.1, 0, FALSE)
 })
 
+test_that("intermediate path (NA/NaN, no infinity) is bit-identical to the kernel", {
+  set.seed(7)
+  n <- 500
+  ref  <- rnorm(n)
+  cand <- ref + 1e-12
+  cand[sample(n, 25)] <- NA_real_
+  ref[sample(n, 25)]  <- NA_real_   # one-sided NAs plus a few two-sided ones
+  ref[1] <- NA_real_; cand[1] <- NA_real_  # guarantee at least one two-sided NA
+
+  for (na_equal in c(TRUE, FALSE)) {
+    expect_identical(
+      compute_tolerance_ok(cand, ref, 1e-9, 0, na_equal),
+      compute_tolerance_col(cand, ref, 1e-9, 0, na_equal)$ok
+    )
+    expect_identical(
+      compute_tolerance_ok(cand, ref, 0, 0.01, na_equal),
+      compute_tolerance_col(cand, ref, 0, 0.01, na_equal)$ok
+    )
+  }
+
+  # NaN stays on the intermediate path (is.na covers it); an infinity
+  # reroutes to the full kernel. Both must match the kernel bit for bit.
+  cand_nan <- cand; cand_nan[2] <- NaN
+  cand_inf <- cand; cand_inf[3] <- Inf
+  for (na_equal in c(TRUE, FALSE)) {
+    expect_identical(
+      compute_tolerance_ok(cand_nan, ref, 1e-9, 0, na_equal),
+      compute_tolerance_col(cand_nan, ref, 1e-9, 0, na_equal)$ok
+    )
+    expect_identical(
+      compute_tolerance_ok(cand_inf, ref, 1e-9, 0, na_equal),
+      compute_tolerance_col(cand_inf, ref, 1e-9, 0, na_equal)$ok
+    )
+  }
+})
+
 test_that("randomised property check: ok-only equals full kernel", {
   set.seed(42)
   pool <- c(rnorm(40), NA, NaN, Inf, -Inf)
