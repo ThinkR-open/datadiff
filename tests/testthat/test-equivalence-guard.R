@@ -1,10 +1,11 @@
-# Equivalence guard for the speed optimization of compare_datasets_from_yaml.
+# Equivalence guard for compare_datasets_from_yaml.
 #
 # These tests pin BOTH the verdict (all_passed) AND the exact set of failing
 # cells (as recovered through pointblank::get_data_extracts, the way the
-# enc.mco oracle consumes the result). They must stay green before and after
-# the optimization: the optimized code may change HOW the verdict is produced,
-# never WHAT it produces.
+# enc.mco oracle consumes the result). Optimizations may change HOW the
+# verdict is produced, never WHAT it produces; local and lazy backends must
+# agree. A documented semantic fix (with a NEWS "Breaking changes" entry) MAY
+# re-pin a verdict here, deliberately and never silently.
 
 KEY <- c("id", ".row")
 
@@ -101,31 +102,36 @@ test_that("multiple failing cells across columns are all surfaced", {
   expect_equal(out$cells, c("a@3|1", "n@5|1", "txt@2|1"))
 })
 
-test_that("character NA (any side) passes under na_equal = TRUE", {
-  for (mutate in list(
-    function(r, c) { r$txt[2] <- NA; c$txt[2] <- NA; list(r, c) },
-    function(r, c) { c$txt[2] <- NA; list(r, c) },
-    function(r, c) { r$txt[2] <- NA; list(r, c) }
-  )) {
-    ref <- make_ref(); cand <- ref
-    m <- mutate(ref, cand); ref <- m[[1]]; cand <- m[[2]]
-    out <- run_compare(ref, cand, key = KEY, na_equal_default = TRUE)
-    expect_true(out$all_passed)
-    expect_equal(out$cells, character(0))
-  }
+# NA semantics for equality columns (aligned with the tolerance kernel and the
+# lazy SQL path): a two-sided NA follows na_equal, a one-sided NA is always a
+# difference.
+
+test_that("character NA on both sides follows na_equal", {
+  ref <- make_ref(); cand <- ref
+  ref$txt[2]  <- NA
+  cand$txt[2] <- NA
+
+  out_true <- run_compare(ref, cand, key = KEY, na_equal_default = TRUE)
+  expect_true(out_true$all_passed)
+  expect_equal(out_true$cells, character(0))
+
+  out_false <- run_compare(ref, cand, key = KEY, na_equal_default = FALSE)
+  expect_false(out_false$all_passed)
+  expect_equal(out_false$cells, "txt@2|1")
 })
 
-test_that("character NA (any side) fails under na_equal = FALSE", {
-  for (mutate in list(
-    function(r, c) { r$txt[2] <- NA; c$txt[2] <- NA; list(r, c) },
-    function(r, c) { c$txt[2] <- NA; list(r, c) },
-    function(r, c) { r$txt[2] <- NA; list(r, c) }
-  )) {
-    ref <- make_ref(); cand <- ref
-    m <- mutate(ref, cand); ref <- m[[1]]; cand <- m[[2]]
-    out <- run_compare(ref, cand, key = KEY, na_equal_default = FALSE)
-    expect_false(out$all_passed)
-    expect_equal(out$cells, "txt@2|1")
+test_that("character NA on one side only fails regardless of na_equal", {
+  for (na_equal in c(TRUE, FALSE)) {
+    for (mutate in list(
+      function(r, c) { c$txt[2] <- NA; list(r, c) },
+      function(r, c) { r$txt[2] <- NA; list(r, c) }
+    )) {
+      ref <- make_ref(); cand <- ref
+      m <- mutate(ref, cand); ref <- m[[1]]; cand <- m[[2]]
+      out <- run_compare(ref, cand, key = KEY, na_equal_default = na_equal)
+      expect_false(out$all_passed)
+      expect_equal(out$cells, "txt@2|1")
+    }
   }
 })
 
