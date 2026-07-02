@@ -55,3 +55,95 @@ test_that("lazy tables produce the same structure (SQL path)", {
   expect_equal(info$n_dup_keys, 1L)
   expect_equal(info$n_dup_rows, 2L)
 })
+
+# A user column named "n" collides with dplyr::count()'s default output name:
+# count() then names its result "nn" (documented count()/tally() behavior).
+# The lazy helpers must use a reserved name instead of relying on "n".
+
+test_that("lazy duplicate detection works when the key column is named 'n'", {
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  # Key values are large on purpose: if filter()/sum() read the key column
+  # instead of the count, n_dup_keys / n_dup_rows become absurd.
+  duckdb::dbWriteTable(con, "t_n", data.frame(n = c(100, 100, 200), v = 1:3))
+  info <- find_duplicate_keys(dplyr::tbl(con, "t_n"), "n")
+  expect_equal(info$n_dup_keys, 1L)
+  expect_equal(info$n_dup_rows, 2L)
+  expect_equal(info$examples, "n = 100")
+
+  # No duplicates: values > 1 in the key column must not be mistaken
+  # for duplicate counts
+  duckdb::dbWriteTable(con, "t_n_uniq", data.frame(n = c(100, 200, 300), v = 1:3))
+  expect_null(find_duplicate_keys(dplyr::tbl(con, "t_n_uniq"), "n"))
+})
+
+test_that("the reserved count name itself cannot collide with a key column", {
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  # A key literally named like the reserved count column must not reproduce
+  # the value-vs-count confusion on a different name
+  df <- data.frame(a = c(100, 100, 200), v = 1:3)
+  names(df)[1] <- "..datadiff_n"
+  duckdb::dbWriteTable(con, "t_reserved", df)
+  info <- find_duplicate_keys(dplyr::tbl(con, "t_reserved"), "..datadiff_n")
+  expect_equal(info$n_dup_keys, 1L)
+  expect_equal(info$n_dup_rows, 2L)
+  # The example must show the duplicated KEY VALUE (100), not the count (2):
+  # count(name = <grouping column>) silently replaces the key column
+  expect_equal(info$examples, "..datadiff_n = 100")
+})
+
+test_that("lazy_nrow works on a table with a column named 'n'", {
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  duckdb::dbWriteTable(con, "t_nrow", data.frame(n = c(10, 20, 30), v = 1:3))
+  expect_equal(lazy_nrow(dplyr::tbl(con, "t_nrow")), 3)
+})
+
+test_that("full lazy comparison works on tables with a column named 'n'", {
+  skip_if_not_installed("duckdb")
+  skip_if_not_installed("dbplyr")
+  con <- DBI::dbConnect(duckdb::duckdb())
+  on.exit(DBI::dbDisconnect(con, shutdown = TRUE), add = TRUE)
+
+  df <- data.frame(n = c(1, 1, 2), v = c(10, 10, 20))
+  duckdb::dbWriteTable(con, "ref_n",  df)
+  duckdb::dbWriteTable(con, "cand_n", df)
+
+  # Key named "n" with genuine duplicates: the warning must carry the real
+  # counts (1 duplicated key value affecting 2 rows), not sums of key values
+  warns <- character(0)
+  withCallingHandlers(
+    {
+      res <- compare_datasets_from_yaml(
+        dplyr::tbl(con, "ref_n"), dplyr::tbl(con, "cand_n"),
+        key = "n"
+      )
+    },
+    warning = function(w) {
+      warns <<- c(warns, conditionMessage(w))
+      invokeRestart("muffleWarning")
+    }
+  )
+  dup_warns <- grep("Duplicate keys detected", warns, value = TRUE)
+  expect_length(dup_warns, 1L)
+  expect_match(dup_warns, "1 duplicate key value\\(s\\) affecting 2 rows")
+
+  # Column "n" as a plain compared (non-key) column
+  duckdb::dbWriteTable(con, "ref_n2",  data.frame(id = 1:3, n = c(10, 20, 30)))
+  duckdb::dbWriteTable(con, "cand_n2", data.frame(id = 1:3, n = c(10, 20, 30)))
+  res2 <- compare_datasets_from_yaml(
+    dplyr::tbl(con, "ref_n2"), dplyr::tbl(con, "cand_n2"),
+    key = "id"
+  )
+  expect_true(res2$all_passed)
+})

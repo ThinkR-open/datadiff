@@ -2,6 +2,14 @@
 
 ## Bug fixes
 
+* Lazy comparisons now work on tables containing a column named `n`. The
+  duplicate-key detection used `dplyr::count()` with its default output name:
+  with a key column named `n`, the filter and the aggregates silently read the
+  key values instead of the counts, producing a wrong duplicate diagnosis.
+  Both lazy helpers now use a reserved count name, and the
+  `globalVariables("n")` declaration that masked the pattern is gone
+  (issue #18).
+
 * Argument vs YAML resolution is now deterministic and documented: explicit
   argument > YAML `defaults` > built-in default, for both `key` and `label`.
   Previously the `label` argument was silently overwritten by the YAML label
