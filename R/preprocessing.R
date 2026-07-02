@@ -30,12 +30,18 @@ normalize_text <- function(x, case_insensitive = FALSE, trim = FALSE) {
 #' such as text normalization for character columns. Supports both local data.frames
 #' and lazy tables (tbl_lazy) via dplyr::mutate().
 #'
+#' On a local data.frame, every factor column (including key and non-compared
+#' columns) is first converted to character: factors are compared as the
+#' character values they display, so the text normalization rules apply to
+#' them and factors with differing level sets compare cleanly.
+#'
 #' @param df A dataframe or lazy table to preprocess
 #' @param col_rules A list of column-specific rules from derive_column_rules()
 #' @param schema Optional local data.frame with 0 rows used to determine column
 #'   types when \code{df} is a lazy table. Obtained via
 #'   \code{dplyr::collect(utils::head(df, 0L))}.
-#' @return Preprocessed dataframe (or lazy table) with transformations applied
+#' @return Preprocessed dataframe (or lazy table) with transformations applied.
+#'   Factor columns of a local data.frame come back as character vectors.
 #' @examples
 #' df <- data.frame(text_col = c("  HELLO  ", "world"))
 #' rules <- list(text_col = list(equal_mode = "normalized", case_insensitive = TRUE, trim = TRUE))
@@ -44,6 +50,19 @@ normalize_text <- function(x, case_insensitive = FALSE, trim = FALSE) {
 #' @export
 preprocess_dataframe <- function(df, col_rules, schema = NULL) {
   out <- df
+  # Factors are classed "character" by detect_column_types() and receive the
+  # character rules, but == on factors with differing level sets errors and
+  # normalize_text() skips non-character vectors. Compare them as the
+  # character values they display. SQL lazy tables convert factors to varchar
+  # upstream; Arrow dictionary columns stay lazy and are handled by the
+  # is.factor(schema[[nm]]) branch of the is_char predicate below.
+  if (!is_non_local(out)) {
+    for (nm in names(out)) {
+      if (is.factor(out[[nm]])) {
+        out[[nm]] <- as.character(out[[nm]])
+      }
+    }
+  }
   for (nm in names(col_rules)) {
     cr <- col_rules[[nm]]
     eq_mode <- cr$equal_mode %||% "exact"
@@ -53,9 +72,11 @@ preprocess_dataframe <- function(df, col_rules, schema = NULL) {
     # Apply normalization if equal_mode is "normalized" OR if case_insensitive/trim is TRUE
     should_normalize <- identical(eq_mode, "normalized") || case_insensitive || trim
 
-    # Determine column type: use schema for lazy tables, otherwise inspect df directly
+    # Determine column type: use schema for lazy tables, otherwise inspect df
+    # directly. A factor in the schema counts as character: the local values
+    # were converted above and the character rules apply to it.
     is_char <- if (!is.null(schema)) {
-      is.character(schema[[nm]])
+      is.character(schema[[nm]]) || is.factor(schema[[nm]])
     } else {
       is.character(out[[nm]])
     }

@@ -16,6 +16,13 @@ A named character vector with column names as names and types as values
 Analyzes each column of a dataframe to determine its data type
 (integer, numeric, date, datetime, logical, or character)
 }
+\details{
+Everything that is none of the first five types falls in the "character"
+bucket and receives the character rules. That is intentional for factors
+(compared as the character values they display, see
+\code{\link[=preprocess_dataframe]{preprocess_dataframe()}}) and works for types whose \code{==} behaves like
+character (e.g. \code{bit64::integer64}). List-columns are not supported.
+}
 \examples{
 df <- data.frame(a = 1:3, b = c(1.1, 2.2, 3.3), c = c("x", "y", "z"))
 detect_column_types(df)

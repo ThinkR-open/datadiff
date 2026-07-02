@@ -601,9 +601,9 @@ compare_datasets_from_yaml <- function(data_reference,
     eq_num_cols <- eq_cols[vapply(X = eq_cols, FUN = function(nm) {
       is.numeric(schema_ref[[nm]])
     }, FUN.VALUE = logical(1))]
-    add_bool_cols_sql(cmp, tol_cols, eq_cols,
-                      col_rules, ref_suffix, na_equal,
-                      eq_num_cols = eq_num_cols)
+    add_bool_cols_sql(cmp, tol_cols = tol_cols, eq_cols = eq_cols,
+                      col_rules = col_rules, ref_suffix = ref_suffix,
+                      na_equal = na_equal, eq_num_cols = eq_num_cols)
   } else {
     add_ok_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
   }
