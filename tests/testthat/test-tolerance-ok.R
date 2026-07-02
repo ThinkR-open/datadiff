@@ -30,7 +30,7 @@ test_that("special values fall back and still match the full kernel", {
   expect_ok_equiv(Inf, Inf, 0.1, 0, FALSE)
 })
 
-test_that("intermediate path (NA but no NaN/Inf) is bit-identical to the kernel", {
+test_that("intermediate path (NA/NaN, no infinity) is bit-identical to the kernel", {
   set.seed(7)
   n <- 500
   ref  <- rnorm(n)
@@ -50,7 +50,8 @@ test_that("intermediate path (NA but no NaN/Inf) is bit-identical to the kernel"
     )
   }
 
-  # A single NaN or Inf must reroute to the full kernel, identically
+  # NaN stays on the intermediate path (is.na covers it); an infinity
+  # reroutes to the full kernel. Both must match the kernel bit for bit.
   cand_nan <- cand; cand_nan[2] <- NaN
   cand_inf <- cand; cand_inf[3] <- Inf
   for (na_equal in c(TRUE, FALSE)) {

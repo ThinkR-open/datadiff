@@ -56,13 +56,15 @@ compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equa
 #' two fast paths:
 #' - no NA/NaN/Inf at all: the result reduces to
 #'   `abs(cand - ref) <= thresh + fp` (3 vector passes);
-#' - NA present but no NaN/Inf (the most common real-data case): the raw
-#'   comparison yields NA exactly where an NA is involved, so one
-#'   `ok[is.na(ok)] <- FALSE` pass plus the two-sided-NA correction reproduces
-#'   the kernel at a fraction of its passes.
+#' - NA and/or NaN present but no infinity (the most common real-data case):
+#'   the raw comparison yields NA exactly where an NA or NaN is involved, so
+#'   one `ok[is.na(ok)] <- FALSE` pass plus the two-sided correction
+#'   reproduces the kernel at a fraction of its passes (`is.na()` covers NaN,
+#'   so NaN follows the NA rules identically on both paths).
 #'
-#' Anything with NaN/Inf falls back to the full kernel (taking only its `$ok`),
-#' so the result is identical to `compute_tolerance_col(...)$ok` in every case.
+#' Only infinities fall back to the full kernel (taking only its `$ok`;
+#' `abs(Inf - Inf)` is NaN but same-sign infinities must PASS), so the result
+#' is identical to `compute_tolerance_col(...)$ok` in every case.
 #'
 #' @inheritParams compute_tolerance_col
 #' @return Logical vector, the same as `compute_tolerance_col(...)$ok`.
