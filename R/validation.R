@@ -1,6 +1,8 @@
 lazy_nrow <- function(x) {
   if (is_non_local(x)) {
-    dplyr::pull(dplyr::collect(dplyr::count(x)), n)
+    # Explicit count name: do not rely on count()'s implicit "n"/"nn" naming
+    count_col <- "..datadiff_n"
+    dplyr::pull(dplyr::collect(dplyr::count(x, name = count_col)), var = count_col)
   } else {
     nrow(x)
   }

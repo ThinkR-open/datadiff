@@ -20,18 +20,25 @@ format_key_examples <- function(uniq_keys, key) {
   }
 }
 
+#' @importFrom rlang .data
+#' @noRd
 find_duplicate_keys <- function(data, key) {
   if (is_non_local(data)) {
+    # Reserved count name: count()'s default "n" collides with a user column
+    # named "n" (count() then stores its result in "nn", and a key named "n"
+    # would be filtered on its own values instead of the count). Assumes no
+    # key column is itself named "..datadiff_n".
+    count_col <- "..datadiff_n"
     dups <- data %>%
-      dplyr::count(dplyr::across(dplyr::all_of(key))) %>%
-      dplyr::filter(n > 1L) %>%
+      dplyr::count(dplyr::across(dplyr::all_of(key)), name = count_col) %>%
+      dplyr::filter(.data[[count_col]] > 1L) %>%
       dplyr::collect()
     if (nrow(dups) == 0L) {
       return(NULL)
     }
     return(list(
       n_dup_keys = nrow(dups),
-      n_dup_rows = sum(dups$n),
+      n_dup_rows = sum(dups[[count_col]]),
       examples   = format_key_examples(dups[, key, drop = FALSE], key)
     ))
   }
