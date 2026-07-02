@@ -76,8 +76,12 @@ compute_tolerance_ok <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equal
 #'
 #' Like [add_tolerance_columns()] but materialises only the boolean `<col>__ok`
 #' columns - which alone determine the verdict - in a single bind. The
-#' `<col>__absdiff` / `<col>__thresh` diagnostic columns are not produced (they
-#' are not read by any verdict logic nor surfaced in the failing-row extracts).
+#' `<col>__absdiff` / `<col>__thresh` diagnostic columns are not produced here:
+#' no verdict logic reads them, and on the all-pass fast path there are no
+#' extracts to surface them in. On the failure path they are re-added for the
+#' failing columns only by [add_diff_columns()], so the failing-row extracts
+#' keep the explicit measured deviations at a cost proportional to the failing
+#' columns rather than the table width.
 #'
 #' @inheritParams add_tolerance_columns
 #' @return `cmp` with the `<col>__ok` columns appended.
@@ -98,6 +102,43 @@ add_ok_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
   }
   names(ok_cols) <- paste0(tol_cols, "__ok")
   cbind(cmp, list2DF(ok_cols))
+}
+
+#' Add the `<col>__absdiff` / `<col>__thresh` diagnostic columns (failure path)
+#'
+#' Recomputes, for the given tolerance columns (in practice the FAILING ones
+#' only), the measured absolute deviation and the applied threshold, so the
+#' failing-row extracts - `pointblank::get_data_extracts()`, the HTML report and
+#' its CSV download - show the explicit gap next to the candidate and reference
+#' values, as they did up to 0.4.7. The `<col>__ok` verdict columns are expected
+#' to exist already (see [add_ok_columns()]) and are not touched. Cost is
+#' proportional to the number of columns passed, so the all-pass fast path and
+#' the passing majority of columns pay nothing.
+#'
+#' @inheritParams add_tolerance_columns
+#' @return `cmp` with the `<col>__absdiff` / `<col>__thresh` columns appended.
+#' @noRd
+add_diff_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
+  if (length(tol_cols) == 0) {
+    return(cmp)
+  }
+  m <- length(tol_cols)
+  absdiff_cols <- vector("list", m)
+  thresh_cols  <- vector("list", m)
+  for (i in seq_len(m)) {
+    c <- tol_cols[i]
+    blocks <- compute_tolerance_col(
+      cand_vals = cmp[[c]], ref_vals = cmp[[paste0(c, ref_suffix)]],
+      abs_tol = col_rules[[c]][["abs"]] %||% 0,
+      rel_tol = col_rules[[c]][["rel"]] %||% 0,
+      na_equal = na_equal
+    )
+    absdiff_cols[[i]] <- blocks$absdiff
+    thresh_cols[[i]]  <- blocks$thresh
+  }
+  names(absdiff_cols) <- paste0(tol_cols, "__absdiff")
+  names(thresh_cols)  <- paste0(tol_cols, "__thresh")
+  cbind(cmp, list2DF(c(absdiff_cols, thresh_cols)))
 }
 
 #' Add `<col>__ok` / `<col>__eq` boolean columns to a lazy table via one SQL SELECT

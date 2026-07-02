@@ -15,6 +15,19 @@
   path. The new equivalence tests use the R kernel as oracle on a full
   NaN/Inf/NA grid, on DuckDB and SQLite (issue #13).
 
+* Failing-row extracts again include the explicit measured deviations
+  (issue #11). Since the 0.4.8 performance work, `compare_datasets_from_yaml()`
+  only materialised the boolean `<col>__ok` verdict columns, so
+  `pointblank::get_data_extracts()`, the HTML report and its CSV download
+  showed the candidate and reference values but no longer the measured gap.
+  The `<col>__absdiff` (measured absolute deviation) and `<col>__thresh`
+  (applied threshold) columns are now recomputed on the failure path for the
+  **failing** tolerance columns only, restoring the <= 0.4.7 extract content
+  at a cost proportional to the failing columns - the all-pass fast path and
+  the passing majority of columns are untouched, so the 0.4.8 speedups are
+  preserved. The lazy (SQL) path is unchanged: its extracts are built from the
+  slim boolean table and never carried these diagnostics.
+
 * The lazy path no longer leaks its internal temp table on a user-supplied
   connection: the slim boolean table is dropped at the end of each call (the
   Arrow path already closed its private connection). Its name is now derived
