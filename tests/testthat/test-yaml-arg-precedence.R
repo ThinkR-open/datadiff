@@ -19,7 +19,7 @@ test_that("explicit label argument wins over the YAML label", {
   expect_identical(res_yaml$reponse$label, "yaml label")
 })
 
-test_that("YAML 'keys' field is read without partial matching", {
+test_that("YAML 'keys' field is read without $ partial matching", {
   ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
   # Shuffled candidate: only a comparison joined on the YAML key passes
   cand_shuffled <- ref[c(3, 1, 2), , drop = FALSE]
@@ -38,6 +38,12 @@ by_type:
     abs: 0.000000001
 ', con = yaml_path)
 
+  # warnPartialMatchDollar makes any $ partial-match resolution audible:
+  # without it, a regressed rules$defaults$key implementation would pass
+  # this test silently (both implementations resolve the key)
+  old <- options(warnPartialMatchDollar = TRUE)
+  on.exit(options(old), add = TRUE)
+
   warns <- character(0)
   withCallingHandlers(
     {
@@ -52,31 +58,34 @@ by_type:
   expect_false(any(grepl("partial match", warns)))
 })
 
-test_that("YAML 'keys' field is honored under warnPartialMatchDollar", {
-  ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
-  cand_shuffled <- ref[c(2, 3, 1), , drop = FALSE]
+test_that("an invalid label argument is rejected with a clear error", {
+  ref <- data.frame(id = 1:2, x = c(1.0, 2.0))
 
   yaml_path <- tempfile(fileext = ".yaml")
   on.exit(unlink(yaml_path), add = TRUE)
-  writeLines('
-version: 1
-defaults:
-  keys: [id]
-row_validation:
-  check_count: no
-', con = yaml_path)
+  write_rules_template(ref, key = "id", path = yaml_path)
 
-  old <- options(warnPartialMatchDollar = TRUE)
-  on.exit(options(old), add = TRUE)
-
-  # The keys resolution itself must not rely on $ partial matching
-  rules <- read_rules(yaml_path)
-  expect_no_warning(rules$defaults[["keys"]] %||% rules$defaults[["key"]])
-
-  res <- suppressWarnings(
-    compare_datasets_from_yaml(ref, cand_shuffled, path = yaml_path)
+  # NA and non-scalar labels must be rejected upfront, not crash later on
+  # an if (label == "") condition
+  expect_error(
+    compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path,
+                               label = NA_character_),
+    regexp = "single character string"
   )
-  expect_true(res$all_passed)
+  expect_error(
+    compare_datasets_from_yaml(ref, ref, key = "id", label = NA_character_),
+    regexp = "single character string"
+  )
+  expect_error(
+    compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path,
+                               label = c("a", "b")),
+    regexp = "single character string"
+  )
+  expect_error(
+    write_rules_template(ref, key = "id", label = NA_character_,
+                         path = tempfile(fileext = ".yaml")),
+    regexp = "single character string"
+  )
 })
 
 test_that("YAML with both 'keys' and legacy 'key' fields: 'keys' wins", {

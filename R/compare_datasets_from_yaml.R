@@ -62,6 +62,7 @@ write_rules_template <- function(data_reference,
       )
     }
   }
+  validate_label(label)
   if (is.null(label) || label == "") {label <- paste("comparaison", deparse1(substitute(data_reference)))
 
   }
@@ -109,6 +110,27 @@ read_rules <- function(path) {
   r$by_name  <- r$by_name  %||% list()
   r$row_validation <- r$row_validation %||% list(check_count = FALSE, expected_count = NULL, tolerance = 0)
   r
+}
+
+#' Validate a report label argument
+#'
+#' A label must be NULL or a single non-NA character string: anything else
+#' would crash later on the scalar `if (label == "")` fallback checks.
+#'
+#' @param label The label value to validate.
+#' @return \code{NULL}, invisibly. Called for its side effect (error).
+#' @noRd
+validate_label <- function(label) {
+  if (is.null(label)) {
+    return(invisible(NULL))
+  }
+  if (!is.character(label) || length(label) != 1 || is.na(label)) {
+    stop(
+      "Parameter 'label' must be a single character string (or NULL).",
+      call. = FALSE
+    )
+  }
+  invisible(NULL)
 }
 
 #' Validate a comparison key against both datasets
@@ -280,6 +302,7 @@ compare_datasets_from_yaml <- function(data_reference,
   if (!inherits(data_candidate, valid_classes)) {
     stop("data_candidate must be a data.frame, tibble, lazy table, or Arrow object")
   }
+  validate_label(label)
 
   # Guard: ensure dbplyr is available when lazy tables are used
   if (inherits(data_reference, "tbl_lazy") || inherits(data_candidate, "tbl_lazy")) {
