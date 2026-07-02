@@ -146,19 +146,34 @@ add_diff_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
 #' On the lazy path, building the per-column tolerance/equality booleans with
 #' `dplyr::mutate()` is O(expressions) on the R side (dbplyr query construction
 #' and SQL rendering dominate; e.g. ~60 s of 64 s for 300 columns). This builds
-#' the same boolean columns in a single templated SQL `SELECT`, leaving DuckDB to
-#' execute. The CASE WHEN logic reproduces exactly the `dplyr::case_when` used
-#' previously (NULL handling and IEEE 754 fp correction inlined), so the lazy
-#' verdict is unchanged.
+#' the same boolean columns in a single templated SQL `SELECT`, leaving the
+#' database to execute.
+#'
+#' The CASE WHEN logic reproduces the R tolerance kernel
+#' (`compute_tolerance_col`) including its NaN/Inf semantics: same-sign
+#' infinities pass, a one-sided NA/NaN/Inf fails, NA/NaN on both sides follows
+#' `na_equal`. SQL NULL only covers R's NA; NaN is a regular float in DuckDB
+#' (ordered above everything, `NaN = NaN` true), so NaN detection uses
+#' `isnan()` there. Backends without NaN storage (SQLite turns NaN into NULL
+#' on insert) fall back to the NULL rules; infinity detection uses a
+#' `> DBL_MAX` comparison where `isinf()` is unavailable. Known limitation:
+#' NaN detection is only wired for DuckDB (the tested lazy backend). A
+#' non-DuckDB backend that does store NaN (e.g. PostgreSQL) keeps the
+#' NULL-only rules for NaN, i.e. the pre-fix semantics on those values.
 #'
 #' @param cmp A lazy table (the join of candidate and reference).
 #' @param tol_cols,eq_cols Tolerance / equality column names.
 #' @param col_rules Per-column rules (abs / rel).
 #' @param ref_suffix Reference-column suffix.
 #' @param na_equal Logical; NA equality semantics.
+#' @param eq_num_cols Subset of `eq_cols` holding numeric data: their equality
+#'   CASE gets the NaN-aware NA rules (matching the local path, where
+#'   `is.na(NaN)` is TRUE). Non-numeric columns must not receive `isnan()`
+#'   (type error in SQL).
 #' @return A lazy table with the `<col>__ok` / `<col>__eq` columns added.
 #' @noRd
-add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix, na_equal) {
+add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix,
+                              na_equal, eq_num_cols = character(0)) {
   if (length(tol_cols) == 0 && length(eq_cols) == 0) {
     return(cmp)
   }
@@ -168,17 +183,59 @@ add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix, na_
   num <- function(x) sprintf("%.17g", x)
   fp_eps <- 8 * .Machine$double.eps
 
-  case_bool <- function(cc, rc, cond) {
-    if (na_equal) {
-      sprintf(paste0("CASE WHEN %s IS NULL AND %s IS NULL THEN TRUE ",
-                     "WHEN %s IS NULL OR %s IS NULL THEN FALSE ",
-                     "WHEN %s THEN TRUE ELSE FALSE END"),
-              cc, rc, cc, rc, cond)
+  is_duckdb <- inherits(con, "duckdb_connection")
+  nan_sql <- function(x) {
+    if (is_duckdb) {
+      sprintf("isnan(%s)", x)
     } else {
-      sprintf(paste0("CASE WHEN %s IS NULL OR %s IS NULL THEN FALSE ",
-                     "WHEN %s THEN TRUE ELSE FALSE END"),
-              cc, rc, cond)
+      "FALSE"
     }
+  }
+  inf_sql <- function(x) {
+    if (is_duckdb) {
+      sprintf("isinf(%s)", x)
+    } else {
+      sprintf("(%s > 1.7976931348623157e308 OR %s < -1.7976931348623157e308)",
+              x, x)
+    }
+  }
+  # R's is.na(): SQL NULL or NaN
+  na_like <- function(x) {
+    sprintf("(%s IS NULL OR %s)", x, nan_sql(x))
+  }
+  na_equal_lit <- if (na_equal) "TRUE" else "FALSE"
+
+  # Tolerance kernel semantics: two-sided NA/NaN -> na_equal; one-sided
+  # NA/NaN -> FALSE; same-sign infinities -> TRUE; remaining infinity
+  # (one-sided or opposite signs) -> FALSE; else the finite comparison.
+  case_tol <- function(cc, rc, cond) {
+    sprintf(paste0(
+      "CASE WHEN %s AND %s THEN %s ",
+      "WHEN %s OR %s THEN FALSE ",
+      "WHEN %s AND %s AND ((%s > 0) = (%s > 0)) THEN TRUE ",
+      "WHEN %s OR %s THEN FALSE ",
+      "WHEN %s THEN TRUE ELSE FALSE END"),
+      na_like(cc), na_like(rc), na_equal_lit,
+      na_like(cc), na_like(rc),
+      inf_sql(cc), inf_sql(rc), cc, rc,
+      inf_sql(cc), inf_sql(rc),
+      cond
+    )
+  }
+
+  # Equality semantics: two-sided NA(-like) -> na_equal; one-sided -> FALSE;
+  # else plain SQL equality (infinities compare correctly there). NaN joins
+  # the NA rules only for numeric columns (nan_aware).
+  case_eq <- function(cc, rc, nan_aware) {
+    n <- if (nan_aware) na_like else function(x) sprintf("%s IS NULL", x)
+    sprintf(paste0(
+      "CASE WHEN %s AND %s THEN %s ",
+      "WHEN %s OR %s THEN FALSE ",
+      "WHEN %s = %s THEN TRUE ELSE FALSE END"),
+      n(cc), n(rc), na_equal_lit,
+      n(cc), n(rc),
+      cc, rc
+    )
   }
 
   tol_exprs <- vapply(X = tol_cols, FUN = function(c) {
@@ -188,14 +245,14 @@ add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix, na_
     rt <- col_rules[[c]][["rel"]] %||% 0
     within <- sprintf("ABS(%s - %s) <= (%s + %s * ABS(%s)) + %s * ABS(%s)",
                       cc, rc, num(at), num(rt), rc, num(fp_eps), rc)
-    sprintf("%s AS %s", case_bool(cc, rc, within), q(paste0(c, "__ok")))
+    sprintf("%s AS %s", case_tol(cc, rc, cond = within), q(paste0(c, "__ok")))
   }, FUN.VALUE = character(1), USE.NAMES = FALSE)
 
   eq_exprs <- vapply(X = eq_cols, FUN = function(c) {
     cc <- q(c)
     rc <- q(paste0(c, ref_suffix))
     sprintf("%s AS %s",
-            case_bool(cc, rc, sprintf("%s = %s", cc, rc)),
+            case_eq(cc, rc, nan_aware = c %in% eq_num_cols),
             q(paste0(c, "__eq")))
   }, FUN.VALUE = character(1), USE.NAMES = FALSE)
 
