@@ -10,6 +10,16 @@
 
 ## Performance
 
+* The lazy verdict no longer loads the boolean table into R: the per-column
+  (n, n_failed) counts come from ONE SQL aggregate scan over the computed
+  slim table (`SUM(CASE WHEN ok THEN 0 ELSE 1 END)`, counting FALSE and NULL
+  alike, exactly the local reducers' semantics), and only the FAILING
+  columns' booleans are collected for the pointblank agent. A green lazy
+  comparison previously collected N x columns logicals (~2 GB of R memory
+  for 4M rows x 125 columns, 32x the figure the code comment promised); it
+  now keeps O(columns) in R, and `res$reponse` carries a constant-size
+  placeholder instead of N collected rows (issue #22).
+
 * Four avoidable scans and transfers are gone from the lazy path (issue #24):
   the two systematic `COUNT(*)` full scans are skipped when nothing consumes
   them (keyed comparison with `check_count: false`; `validate_row_counts()`

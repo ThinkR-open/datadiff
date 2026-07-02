@@ -165,6 +165,10 @@ failed_rows
 
 The `type = "pass"` variant returns rows that passed all steps. This is
 useful to understand the scope of the problem before investigating further.
+Note: on an all-pass LAZY comparison, `reponse` carries a constant-size
+placeholder rather than the source rows (the verdict is computed by SQL
+aggregates without loading the data into R), so sundering is only
+meaningful on a failing comparison.
 
 For each failing tolerance column, the step extracts returned by
 `pointblank::get_data_extracts()` (and the CSV download in the HTML report)

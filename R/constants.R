@@ -17,10 +17,18 @@ datadiff_prefix_missing_col <- "__missing_col_"
 datadiff_prefix_type_mismatch <- "__type_mismatch_"
 
 # Column name helpers: the only supported way to build these names.
+# Length-guarded: paste0(character(0), suffix) yields the bare suffix
+# (recycle0 is FALSE by default), a phantom column name.
 datadiff_ok_col <- function(col) {
+  if (length(col) == 0) {
+    return(character(0))
+  }
   paste0(col, datadiff_suffix_ok)
 }
 datadiff_eq_col <- function(col) {
+  if (length(col) == 0) {
+    return(character(0))
+  }
   paste0(col, datadiff_suffix_eq)
 }
 
