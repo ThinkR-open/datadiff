@@ -47,7 +47,7 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
   # Add dummy columns for missing columns BEFORE creating the agent
   # These columns are set to FALSE and we'll check they equal TRUE (will fail)
   for (c in missing_in_candidate) {
-    dummy_col <- paste0("__missing_col_", c)
+    dummy_col <- paste0(datadiff_prefix_missing_col, c)
     if (is_non_local(cmp)) {
       cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
     } else {
@@ -58,7 +58,7 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
   # Add dummy FALSE columns for type-mismatched columns.
   # These will generate a dedicated failing validation step per column.
   for (c in type_mismatch_cols) {
-    dummy_col <- paste0("__type_mismatch_", c)
+    dummy_col <- paste0(datadiff_prefix_type_mismatch, c)
     if (is_non_local(cmp)) {
       cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
     } else {
@@ -83,7 +83,7 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
 
   # For missing columns, add a validation that will fail
   for (c in missing_in_candidate) {
-    dummy_col <- paste0("__missing_col_", c)
+    dummy_col <- paste0(datadiff_prefix_missing_col, c)
     agent <- agent %>%
       col_vals_equal(
         columns = all_of(dummy_col),
@@ -95,7 +95,7 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
 
   # For type-mismatched columns, add a validation that will always fail.
   for (c in type_mismatch_cols) {
-    dummy_col <- paste0("__type_mismatch_", c)
+    dummy_col <- paste0(datadiff_prefix_type_mismatch, c)
     agent <- agent %>%
       col_vals_equal(
         columns = all_of(dummy_col),
@@ -107,7 +107,7 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
 
   eq_cols <- setdiff(x = common_cols, y = tol_cols)
   for (c in eq_cols) {
-    eq_precomputed <- paste0(c, "__eq")
+    eq_precomputed <- datadiff_eq_col(c)
     if (eq_precomputed %in% get_col_names(cmp)) {
       # Lazy path: use pre-computed boolean equality column
       agent <- agent %>%
@@ -124,7 +124,7 @@ setup_pointblank_agent <- function(cmp, cols_reference, common_cols, tol_cols,
   }
 
   for (c in tol_cols) {
-    ok_col <- paste0(c, "__ok")
+    ok_col <- datadiff_ok_col(c)
     agent <- agent %>% col_vals_equal(columns = all_of(ok_col), value = TRUE, na_pass = FALSE)
   }
 

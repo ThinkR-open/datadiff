@@ -312,7 +312,7 @@ compare_datasets_from_yaml <- function(data_reference,
                                        data_candidate,
                                        key = NULL,
                                        path = NULL,
-                                       warn_at = 0.00000000000001, stop_at = 0.00000000000001,
+                                       warn_at = 1e-14, stop_at = 1e-14,
                                        ref_suffix = "__reference",
                                        label = NULL,
                                        error_msg_no_key = "Without keys, both tables must have the same number of rows.",
@@ -671,8 +671,8 @@ compare_datasets_from_yaml <- function(data_reference,
       paste0(cols, suffix)
     }
     val_cols <- c(
-      suffix_all(tol_cols, suffix = "__ok"),
-      suffix_all(eq_cols, suffix = "__eq"),
+      suffix_all(tol_cols, suffix = datadiff_suffix_ok),
+      suffix_all(eq_cols, suffix = datadiff_suffix_eq),
       if (isTRUE(row_validation_info$check_count)) {
         "row_count_ok"
       } else {
@@ -758,7 +758,7 @@ compare_datasets_from_yaml <- function(data_reference,
     # express these semantics.
     if (!is_lazy && length(fail$eq) > 0) {
       for (c in fail$eq) {
-        cmp_for_agent[[paste0(c, "__eq")]] <- eq_col_bool(
+        cmp_for_agent[[datadiff_eq_col(c)]] <- eq_col_bool(
           cmp_for_agent, col = c, ref_suffix = ref_suffix, na_equal = na_equal
         )
       }
