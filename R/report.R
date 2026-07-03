@@ -247,7 +247,8 @@ print.datadiff_report <- function(x, ...) {
 #' @param extracts_dir Optional directory where the failing-row extracts are
 #'   also written as plain CSV files, one per failing validation step, named
 #'   `extract_<step>_<column>.csv` with a zero-padded 4-digit step number
-#'   (e.g. `extract_0002_price.csv`). The CSV buttons inside the HTML report are
+#'   (e.g. `extract_0002_price.csv`). Column names are sanitized for the
+#'   file system: any character outside `[A-Za-z0-9_.-]` becomes `_`. The CSV buttons inside the HTML report are
 #'   `data:` URI downloads, which some viewers block (Positron / Posit
 #'   Workbench webview): files on disk are the robust alternative. The
 #'   directory is created when needed; nothing is created when there is no
