@@ -41,11 +41,10 @@ test_that("extract_failed = FALSE prevents row extraction", {
   expect_false(result$all_passed)
   # With extract_failed = FALSE, no rows should be extracted
   extracts <- pointblank::get_data_extracts(result$reponse)
-  # Extracts should be empty or contain empty data frames
-  if (length(extracts) > 0) {
-    total_rows <- sum(vapply(extracts, nrow, integer(1)))
-    expect_equal(total_rows, 0)
-  }
+  # Extracts must be empty or contain only empty data frames: computing the
+  # total over an empty list gives 0, so the assertion never silently skips
+  total_rows <- sum(vapply(extracts, nrow, integer(1)))
+  expect_equal(total_rows, 0)
 })
 
 test_that("extract_failed accepts logical values only in practice", {
@@ -86,12 +85,12 @@ test_that("get_first_n limits extracted rows", {
   extracts <- pointblank::get_data_extracts(result$reponse)
 
   # Each extract should have at most 5 rows
-  if (length(extracts) > 0) {
-    for (ext in extracts) {
-      if (is.data.frame(ext) && nrow(ext) > 0) {
-        expect_lte(nrow(ext), 5)
-      }
-    }
+  # Assert the precondition first: a failing comparison with extraction
+  # enabled must produce at least one extract (a silent empty list would
+  # make the cap check vacuous)
+  expect_gt(length(extracts), 0)
+  for (ext in extracts) {
+    expect_lte(nrow(as.data.frame(ext)), 5)
   }
 })
 
@@ -106,12 +105,12 @@ test_that("get_first_n = 1 extracts only first failure", {
   expect_false(result$all_passed)
   extracts <- pointblank::get_data_extracts(result$reponse)
 
-  if (length(extracts) > 0) {
-    for (ext in extracts) {
-      if (is.data.frame(ext) && nrow(ext) > 0) {
-        expect_lte(nrow(ext), 1)
-      }
-    }
+  # Assert the precondition first: a failing comparison with extraction
+  # enabled must produce at least one extract (a silent empty list would
+  # make the cap check vacuous)
+  expect_gt(length(extracts), 0)
+  for (ext in extracts) {
+    expect_lte(nrow(as.data.frame(ext)), 1)
   }
 })
 
@@ -160,12 +159,12 @@ test_that("sample_n limits extracted rows via random sampling", {
   expect_false(result$all_passed)
   extracts <- pointblank::get_data_extracts(result$reponse)
 
-  if (length(extracts) > 0) {
-    for (ext in extracts) {
-      if (is.data.frame(ext) && nrow(ext) > 0) {
-        expect_lte(nrow(ext), 10)
-      }
-    }
+  # Assert the precondition first: a failing comparison with extraction
+  # enabled must produce at least one extract (a silent empty list would
+  # make the cap check vacuous)
+  expect_gt(length(extracts), 0)
+  for (ext in extracts) {
+    expect_lte(nrow(as.data.frame(ext)), 10)
   }
 })
 
@@ -180,12 +179,12 @@ test_that("sample_n = 1 extracts only one random failure", {
   expect_false(result$all_passed)
   extracts <- pointblank::get_data_extracts(result$reponse)
 
-  if (length(extracts) > 0) {
-    for (ext in extracts) {
-      if (is.data.frame(ext) && nrow(ext) > 0) {
-        expect_lte(nrow(ext), 1)
-      }
-    }
+  # Assert the precondition first: a failing comparison with extraction
+  # enabled must produce at least one extract (a silent empty list would
+  # make the cap check vacuous)
+  expect_gt(length(extracts), 0)
+  for (ext in extracts) {
+    expect_lte(nrow(as.data.frame(ext)), 1)
   }
 })
 
@@ -279,12 +278,12 @@ test_that("sample_limit caps sample_frac results", {
   expect_false(result$all_passed)
   extracts <- pointblank::get_data_extracts(result$reponse)
 
-  if (length(extracts) > 0) {
-    for (ext in extracts) {
-      if (is.data.frame(ext) && nrow(ext) > 0) {
-        expect_lte(nrow(ext), 5)
-      }
-    }
+  # Assert the precondition first: a failing comparison with extraction
+  # enabled must produce at least one extract (a silent empty list would
+  # make the cap check vacuous)
+  expect_gt(length(extracts), 0)
+  for (ext in extracts) {
+    expect_lte(nrow(as.data.frame(ext)), 5)
   }
 })
 
@@ -300,12 +299,12 @@ test_that("sample_limit = 1 limits to single row", {
   expect_false(result$all_passed)
   extracts <- pointblank::get_data_extracts(result$reponse)
 
-  if (length(extracts) > 0) {
-    for (ext in extracts) {
-      if (is.data.frame(ext) && nrow(ext) > 0) {
-        expect_lte(nrow(ext), 1)
-      }
-    }
+  # Assert the precondition first: a failing comparison with extraction
+  # enabled must produce at least one extract (a silent empty list would
+  # make the cap check vacuous)
+  expect_gt(length(extracts), 0)
+  for (ext in extracts) {
+    expect_lte(nrow(as.data.frame(ext)), 1)
   }
 })
 
@@ -339,10 +338,8 @@ test_that("extract_failed = FALSE overrides other extraction params", {
   extracts <- pointblank::get_data_extracts(result$reponse)
 
   # With extract_failed = FALSE, should have no extracted rows
-  if (length(extracts) > 0) {
-    total_rows <- sum(vapply(extracts, nrow, integer(1)))
-    expect_equal(total_rows, 0)
-  }
+  total_rows <- sum(vapply(extracts, nrow, integer(1)))
+  expect_equal(total_rows, 0)
 })
 
 test_that("get_first_n and sample_n are mutually exclusive (last one wins or pointblank handles)", {

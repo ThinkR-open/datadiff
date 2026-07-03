@@ -88,6 +88,23 @@
 
 ## Chores
 
+* Test-suite cleanup (issue #31): the byte-for-byte duplicated
+  "uses key parameter over YAML rules" block is gone; every test that wrote
+  a fixed-name YAML into the working directory now uses `tempfile()` +
+  `on.exit(unlink())` (CRAN policy, and what NEWS 0.4.4 already claimed);
+  the orphan committed fixtures `tests/testthat/rules.yaml` and `test.yaml`
+  (referenced by no test) are removed; the unrunnable
+  `test-huge-parquet.R` (skip-everywhere + hardcoded Windows paths) moves to
+  `dev/manual-tests/`; the silent conditional assertions of
+  `test-extraction-params.R` (`if (length(extracts) > 0) expect_...`) assert
+  their precondition first, so a cap check can no longer pass vacuously; and
+  the small internal helpers (`format_key_examples()`, `get_col_names()`,
+  `is_non_local()`/`is_arrow()`, the `file = NULL` branch of
+  `datadiff_report_html()`) get direct unit tests. The larger redundancy
+  compression the issue sketches (IEEE 754 in 7 copies, duplicate-key tests
+  in 3 files) is deliberately left for a dedicated pass: it is high-churn
+  refactoring of green tests.
+
 * Packaging and code cleanup (issue #34): `dev/` is excluded from the tarball
   (`.Rbuildignore`); the orphan `inst/templates/rules_template.yaml`
   (referenced nowhere) is gone; unused `@importFrom` entries dropped

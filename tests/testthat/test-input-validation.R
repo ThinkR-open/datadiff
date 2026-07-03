@@ -9,13 +9,13 @@ test_that("write_rules_template handles invalid key parameter", {
   unlink(temp_path)
 
   # Test empty key vector (should error)
-  expect_error(write_rules_template(df, key = character(0), path = "test.yaml"))
+  expect_error(write_rules_template(df, key = character(0), path = tempfile(fileext = ".yaml")))
 
   # Test non-character key (should error)
-  expect_error(write_rules_template(df, key = 123, path = "test.yaml"))
+  expect_error(write_rules_template(df, key = 123, path = tempfile(fileext = ".yaml")))
 
   # Test non-existent column as key (should error)
-  expect_error(write_rules_template(df, key = "nonexistent", path = "test.yaml"))
+  expect_error(write_rules_template(df, key = "nonexistent", path = tempfile(fileext = ".yaml")))
 })
 
 test_that("write_rules_template handles invalid ignore_columns_default", {
@@ -96,16 +96,17 @@ test_that("write_rules_template handles extreme values", {
 
 test_that("write_rules_template handles invalid data types", {
   # Test with non-dataframe input (should error)
-  expect_error(write_rules_template("not_a_dataframe", key = "id", path = "test.yaml"))
+  expect_error(write_rules_template("not_a_dataframe", key = "id", path = tempfile(fileext = ".yaml")))
 
   # Test with empty dataframe (should error on key)
   empty_df <- data.frame()
-  expect_error(write_rules_template(empty_df, key = "id", path = "test.yaml"))
+  expect_error(write_rules_template(empty_df, key = "id", path = tempfile(fileext = ".yaml")))
 
   # Test with dataframe having no rows (should work - creates template with empty by_name)
   no_rows_df <- data.frame(id = integer(0), value = numeric(0))
-  expect_no_error(write_rules_template(no_rows_df, key = "id", path = "test_no_rows.yaml"))
-  if (file.exists("test_no_rows.yaml")) unlink("test_no_rows.yaml")
+  no_rows_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(no_rows_path), add = TRUE)
+  expect_no_error(write_rules_template(no_rows_df, key = "id", path = no_rows_path))
 })
 
 test_that("write_rules_template handles file path issues", {

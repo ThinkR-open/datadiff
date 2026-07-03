@@ -26,22 +26,22 @@ by_type:
     abs: 0.5
 '
 
-  writeLines(yaml_content, 'test_key_param.yaml')
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines(yaml_content, con = yaml_path)
 
   # Test 1: Without key parameter, should use YAML key (customer_id)
-  result_yaml <- compare_datasets_from_yaml(ref, cand, path = 'test_key_param.yaml')
+  result_yaml <- compare_datasets_from_yaml(ref, cand, path = yaml_path)
   expect_true(result_yaml$all_passed)
 
   # Test 2: With key parameter "id", should override YAML and use "id"
-  result_param <- compare_datasets_from_yaml(ref, cand, key = "id", path = 'test_key_param.yaml')
+  result_param <- compare_datasets_from_yaml(ref, cand, key = "id", path = yaml_path)
   expect_true(result_param$all_passed)
 
   # Test 3: With multiple keys parameter, should work
-  result_multi <- compare_datasets_from_yaml(ref, cand, key = c("id", "customer_id"), path = 'test_key_param.yaml')
+  result_multi <- compare_datasets_from_yaml(ref, cand, key = c("id", "customer_id"), path = yaml_path)
   expect_true(result_multi$all_passed)
 
-  # Clean up
-  unlink('test_key_param.yaml')
 })
 
 test_that("compare_datasets_from_yaml key parameter handles NULL and missing keys", {
@@ -58,18 +58,18 @@ by_type:
     abs: 0.5
 '
 
-  writeLines(yaml_content, 'test_key_null.yaml')
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines(yaml_content, con = yaml_path)
 
   # Test 1: NULL key parameter with no keys in YAML should work (no key comparison)
-  result_null <- compare_datasets_from_yaml(ref, cand, key = NULL, path = 'test_key_null.yaml')
+  result_null <- compare_datasets_from_yaml(ref, cand, key = NULL, path = yaml_path)
   expect_true(result_null$all_passed)
 
   # Test 2: No key parameter (default NULL) with no keys in YAML
-  result_default <- compare_datasets_from_yaml(ref, cand, path = 'test_key_null.yaml')
+  result_default <- compare_datasets_from_yaml(ref, cand, path = yaml_path)
   expect_true(result_default$all_passed)
 
-  # Clean up
-  unlink('test_key_null.yaml')
 })
 
 test_that("compare_datasets_from_yaml errors when key columns are absent", {
@@ -198,15 +198,15 @@ by_type:
     abs: 0.1
 '
 
-  writeLines(yaml_content, 'test_key_precedence.yaml')
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines(yaml_content, con = yaml_path)
 
   # Using YAML key (category) would compare X->X, Y->Z, Z->Y which fails
   # But we override with id parameter
-  result <- compare_datasets_from_yaml(ref, cand, key = "id", path = 'test_key_precedence.yaml')
+  result <- compare_datasets_from_yaml(ref, cand, key = "id", path = yaml_path)
   expect_true(result$all_passed)
 
-  # Clean up
-  unlink('test_key_precedence.yaml')
 })
 
 # --- Duplicate key detection tests ---
@@ -319,52 +319,6 @@ test_that("no warning when keys are unique", {
   expect_no_warning(
     compare_datasets_from_yaml(ref, cand, key = "id")
   )
-})
-
-test_that("compare_datasets_from_yaml uses key parameter over YAML rules", {
-  # Create test data with multiple potential key columns
-  ref <- data.frame(
-    id = 1:3,
-    customer_id = c("A", "B", "C"),
-    value = c(10.0, 20.0, 30.0),
-    name = c("Alice", "Bob", "Charlie")
-  )
-
-  # Candidate data - same values but different order to test key-based sorting
-  cand <- data.frame(
-    id = c(2, 1, 3),
-    customer_id = c("B", "A", "C"),
-    value = c(20.1, 10.1, 30.1),
-    name = c("Bob", "Alice", "Charlie")
-  )
-
-  # YAML with customer_id as key
-  yaml_content <- '
-version: 1
-defaults:
-  na_equal: yes
-  keys: ["customer_id"]
-by_type:
-  numeric:
-    abs: 0.5
-'
-
-  writeLines(yaml_content, 'test_key_param.yaml')
-
-  # Test 1: Without key parameter, should use YAML key (customer_id)
-  result_yaml <- compare_datasets_from_yaml(ref, cand, path = 'test_key_param.yaml')
-  expect_true(result_yaml$all_passed)
-
-  # Test 2: With key parameter "id", should override YAML and use "id"
-  result_param <- compare_datasets_from_yaml(ref, cand, key = "id", path = 'test_key_param.yaml')
-  expect_true(result_param$all_passed)
-
-  # Test 3: With multiple keys parameter, should work
-  result_multi <- compare_datasets_from_yaml(ref, cand, key = c("id", "customer_id"), path = 'test_key_param.yaml')
-  expect_true(result_multi$all_passed)
-
-  # Clean up
-  unlink('test_key_param.yaml')
 })
 
 
