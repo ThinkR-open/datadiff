@@ -304,14 +304,16 @@ write_extract_csvs <- function(reponse, extracts_dir) {
   vs <- reponse$validation_set
   paths <- vapply(X = names(extracts), FUN = function(nm) {
     i <- as.integer(nm)
-    col <- report_underlying_col(vs$column[[i]][1])
+    # Look the step up by its id (vs$i), not by row position: contiguity of
+    # the validation set is an implicit pointblank invariant, not a contract
+    col <- report_underlying_col(vs$column[[match(i, vs$i)]][1])
     safe_col <- gsub("[^A-Za-z0-9_.-]", "_", x = col)
     path <- file.path(
       extracts_dir,
       sprintf("extract_%04d_%s.csv", i, safe_col)
     )
     utils::write.csv(as.data.frame(extracts[[nm]]), file = path,
-                     row.names = FALSE)
+                     row.names = FALSE, fileEncoding = "UTF-8")
     path
   }, FUN.VALUE = character(1), USE.NAMES = FALSE)
   invisible(paths)
