@@ -244,9 +244,18 @@ print.datadiff_report <- function(x, ...) {
 #' @param res The list returned by [compare_datasets_from_yaml()].
 #' @param file Optional path to write the report to as a self-contained HTML
 #'   file (via [pointblank::export_report()]). When `NULL`, nothing is written.
+#' @param extracts_dir Optional directory where the failing-row extracts are
+#'   also written as plain CSV files, one per failing validation step, named
+#'   `extract_<step>_<column>.csv` with a zero-padded 4-digit step number
+#'   (e.g. `extract_0002_price.csv`). Column names are sanitized for the
+#'   file system: any character outside `[A-Za-z0-9_.-]` becomes `_`. The CSV buttons inside the HTML report are
+#'   `data:` URI downloads, which some viewers block (Positron / Posit
+#'   Workbench webview): files on disk are the robust alternative. The
+#'   directory is created when needed; nothing is created when there is no
+#'   extract (all-pass comparison or `extract_failed = FALSE`).
 #' @return The pointblank agent report object, invisibly.
 #' @export
-datadiff_report_html <- function(res, file = NULL) {
+datadiff_report_html <- function(res, file = NULL, extracts_dir = NULL) {
   coverage <- res$coverage
   if (is.null(coverage)) {
     stop("`res` has no `coverage`; was it produced by compare_datasets_from_yaml()?")
@@ -267,5 +276,45 @@ datadiff_report_html <- function(res, file = NULL) {
   if (!is.null(file)) {
     pointblank::export_report(report, filename = file, quiet = TRUE)
   }
+  if (!is.null(extracts_dir)) {
+    write_extract_csvs(reponse, extracts_dir = extracts_dir)
+  }
   invisible(report)
+}
+
+# Write each failing-step extract of an interrogated agent as a CSV file.
+# Returns the written paths, invisibly.
+write_extract_csvs <- function(reponse, extracts_dir) {
+  extracts <- tryCatch(
+    pointblank::get_data_extracts(reponse),
+    error = function(e) {
+      warning(sprintf(
+        "extracts_dir: could not read the data extracts (%s); no CSV written.",
+        conditionMessage(e)
+      ), call. = FALSE)
+      list()
+    }
+  )
+  if (length(extracts) == 0) {
+    return(invisible(character(0)))
+  }
+  if (!dir.exists(extracts_dir)) {
+    dir.create(extracts_dir, recursive = TRUE)
+  }
+  vs <- reponse$validation_set
+  paths <- vapply(X = names(extracts), FUN = function(nm) {
+    i <- as.integer(nm)
+    # Look the step up by its id (vs$i), not by row position: contiguity of
+    # the validation set is an implicit pointblank invariant, not a contract
+    col <- report_underlying_col(vs$column[[match(i, vs$i)]][1])
+    safe_col <- gsub("[^A-Za-z0-9_.-]", "_", x = col)
+    path <- file.path(
+      extracts_dir,
+      sprintf("extract_%04d_%s.csv", i, safe_col)
+    )
+    utils::write.csv(as.data.frame(extracts[[nm]]), file = path,
+                     row.names = FALSE, fileEncoding = "UTF-8")
+    path
+  }, FUN.VALUE = character(1), USE.NAMES = FALSE)
+  invisible(paths)
 }

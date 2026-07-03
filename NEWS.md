@@ -1,5 +1,13 @@
 # datadiff (development version)
 
+## New features
+
+* `datadiff_report_html()` gains an `extracts_dir` argument: the failing-row
+  extracts are also written as plain CSV files (one per failing step). The
+  CSV buttons inside the HTML report are `data:` URI downloads, which some
+  viewers block silently (Positron / Posit Workbench webview): files on disk
+  are the robust alternative (issue #10).
+
 ## Performance
 
 * Four avoidable scans and transfers are gone from the lazy path (issue #24):
