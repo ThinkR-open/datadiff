@@ -17,6 +17,12 @@ lazy_nrow <- function(x) {
 #' @param data_reference_p Preprocessed reference dataframe
 #' @param data_candidate_p Preprocessed candidate dataframe
 #' @param rules List of validation rules containing row_validation settings
+#' @param count_rows Logical; when `FALSE`, the row counts are not computed and
+#'   `ref_count`/`cand_count` are `NA`. On lazy tables each count is a full
+#'   `COUNT(*)` scan, wasted when nothing consumes it (keyed comparison with
+#'   `check_count: false`). Ignored when the rules activate `check_count`:
+#'   the counts are then always computed, so the returned structure stays
+#'   consistent (an active check never sees `NA` counts).
 #' @return A list with validation information for pointblank integration
 #' @examples
 #' ref <- data.frame(a = 1:3)
@@ -24,11 +30,14 @@ lazy_nrow <- function(x) {
 #' rules <- list(row_validation = list(check_count = TRUE, expected_count = 3, tolerance = 0))
 #' validate_row_counts(ref, cand, rules)
 #' @export
-validate_row_counts <- function(data_reference_p, data_candidate_p, rules) {
+validate_row_counts <- function(data_reference_p, data_candidate_p, rules,
+                                count_rows = TRUE) {
+  check_count <- isTRUE(rules$row_validation$check_count)
+  do_count <- count_rows || check_count
   list(
-    check_count = isTRUE(rules$row_validation$check_count),
-    ref_count = lazy_nrow(data_reference_p),
-    cand_count = lazy_nrow(data_candidate_p),
+    check_count = check_count,
+    ref_count = if (do_count) lazy_nrow(data_reference_p) else NA_integer_,
+    cand_count = if (do_count) lazy_nrow(data_candidate_p) else NA_integer_,
     expected_count = rules$row_validation$expected_count,
     tolerance = rules$row_validation$tolerance %||% 0
   )

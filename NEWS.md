@@ -2,6 +2,18 @@
 
 ## Performance
 
+* Four avoidable scans and transfers are gone from the lazy path (issue #24):
+  the two systematic `COUNT(*)` full scans are skipped when nothing consumes
+  them (keyed comparison with `check_count: false`; `validate_row_counts()`
+  gains a `count_rows` parameter, default unchanged); the 0-row schema is
+  collected once per table and reused by every consumer including the
+  auto-generated template (one DB roundtrip saved when `path = NULL`); the
+  keyed join only carries the key and the compared columns, so ignored and
+  one-sided columns no longer travel through the join into the agent (the
+  failing-row extracts consequently no longer show ignored columns); and the
+  lazy duplicate-key detection aggregates in SQL, transferring 2 scalars plus
+  at most 3 example groups instead of every duplicated group.
+
 * The verdict, the coverage and the failing-column sets now come from a
   SINGLE pass over the boolean validation columns: `build_coverage()` runs
   first and everything else derives from it (its rows already carry the

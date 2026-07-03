@@ -389,6 +389,12 @@ compare_datasets_from_yaml <- function(data_reference,
       data_candidate <- arrow_dataset_to_duckdb(data_candidate, fresh_con, "datadiff_cand")
   }
 
+  # Collect 0-row schemas ONCE for type detection and every consumer below
+  # (key validation, auto-template generation, suffix checks): each collect is
+  # a database roundtrip on lazy inputs.
+  schema_ref  <- dplyr::collect(utils::head(data_reference,  0L))
+  schema_cand <- dplyr::collect(utils::head(data_candidate, 0L))
+
   # Validate the key argument against BOTH datasets before any other consumer:
   # the auto-generated-template path (path = NULL) would otherwise reach
   # write_rules_template() first, which validates the reference only and with
@@ -396,16 +402,26 @@ compare_datasets_from_yaml <- function(data_reference,
   if (!is.null(key)) {
     validate_comparison_key(
       key,
-      ref_cols = get_col_names(data_reference),
-      cand_cols = get_col_names(data_candidate)
+      ref_cols = names(schema_ref),
+      cand_cols = names(schema_cand)
     )
   }
 
-  # If no path provided, create a temporary YAML with default rules
+  # An empty string means "no explicit label": normalised BEFORE the
+  # auto-template call, so that "" falls through to the template default
+  # instead of triggering write_rules_template's deparse fallback (which
+  # would leak the internal variable name into the report label).
+  if (!is.null(label) && label == "") {
+    label <- NULL
+  }
+
+  # If no path provided, create a temporary YAML with default rules. The 0-row
+  # schema stands in for the reference: write_rules_template() only reads
+  # column names and types, and this avoids a second schema roundtrip.
   if (is.null(path)) {
     path <- tempfile(fileext = ".yaml")
     write_rules_template(
-      data_reference = data_reference,
+      data_reference = schema_ref,
       key = key,
       label = label %||% "Comparison with default rules",
       path = path
@@ -420,8 +436,8 @@ compare_datasets_from_yaml <- function(data_reference,
   }
 
   # Check for reserved suffix conflicts in column names
-  ref_cols_with_suffix <- grep(ref_suffix, get_col_names(data_reference), fixed = TRUE, value = TRUE)
-  cand_cols_with_suffix <- grep(ref_suffix, get_col_names(data_candidate), fixed = TRUE, value = TRUE)
+  ref_cols_with_suffix <- grep(ref_suffix, names(schema_ref), fixed = TRUE, value = TRUE)
+  cand_cols_with_suffix <- grep(ref_suffix, names(schema_cand), fixed = TRUE, value = TRUE)
   if (length(ref_cols_with_suffix) > 0 || length(cand_cols_with_suffix) > 0) {
     conflicting <- unique(c(ref_cols_with_suffix, cand_cols_with_suffix))
     warning(sprintf(
@@ -431,10 +447,6 @@ compare_datasets_from_yaml <- function(data_reference,
   }
 
   rules <- read_rules(path)
-
-  # Collect 0-row schemas for type detection and type-dependent logic.
-  schema_ref  <- dplyr::collect(utils::head(data_reference,  0L))
-  schema_cand <- dplyr::collect(utils::head(data_candidate, 0L))
 
   na_equal <- isTRUE(rules$defaults$na_equal)
   ignore_columns <- rules$defaults$ignore_columns %||% character(0)
@@ -476,18 +488,20 @@ compare_datasets_from_yaml <- function(data_reference,
       # Build detailed warning message
       warning_parts <- c()
 
+      # %.0f: the lazy counts are whole doubles from SQL aggregates, and
+      # sprintf %d errors on any whole double at or above 2^31
       if (ref_has_dups) {
         warning_parts <- c(warning_parts, sprintf(
-          "data_reference: %d duplicate key value(s) affecting %d rows (examples: %s)",
-          ref_dup_info$n_dup_keys, ref_dup_info$n_dup_rows,
+          "data_reference: %.0f duplicate key value(s) affecting %.0f rows (examples: %s)",
+          as.numeric(ref_dup_info$n_dup_keys), as.numeric(ref_dup_info$n_dup_rows),
           paste(ref_dup_info$examples, collapse = "; ")
         ))
       }
 
       if (cand_has_dups) {
         warning_parts <- c(warning_parts, sprintf(
-          "data_candidate: %d duplicate key value(s) affecting %d rows (examples: %s)",
-          cand_dup_info$n_dup_keys, cand_dup_info$n_dup_rows,
+          "data_candidate: %.0f duplicate key value(s) affecting %.0f rows (examples: %s)",
+          as.numeric(cand_dup_info$n_dup_keys), as.numeric(cand_dup_info$n_dup_rows),
           paste(cand_dup_info$examples, collapse = "; ")
         ))
       }
@@ -550,8 +564,14 @@ compare_datasets_from_yaml <- function(data_reference,
   data_reference_p <- preprocess_dataframe(data_reference, col_rules, schema = schema_ref)
   data_candidate_p <- preprocess_dataframe(data_candidate, col_rules, schema = schema_cand)
 
-  # Get row validation information
-  row_validation_info <- validate_row_counts(data_reference_p, data_candidate_p, rules)
+  # Get row validation information. The counts are only consumed by the
+  # row-count check and the positional path: on a keyed comparison with
+  # check_count off, skip the two COUNT(*) full scans entirely.
+  needs_counts <- isTRUE(rules$row_validation$check_count) || is.null(key)
+  row_validation_info <- validate_row_counts(
+    data_reference_p, data_candidate_p, rules,
+    count_rows = needs_counts
+  )
 
   if (!is.null(key)) {
     # Re-validated here because the key may come from the YAML rules
@@ -562,8 +582,16 @@ compare_datasets_from_yaml <- function(data_reference,
       cand_cols = get_col_names(data_candidate_p)
     )
 
-    # Join candidate to reference on key to handle different row counts
-    cmp <- left_join(data_candidate_p, data_reference_p, by = key, suffix = c("", ref_suffix))
+    # Join candidate to reference on key to handle different row counts.
+    # Only the key and the compared columns enter the join: ignored and
+    # one-sided columns are never compared, and carrying them through the
+    # join and into the agent costs memory on wide tables.
+    keep_cols <- c(key, common_cols)
+    cmp <- left_join(
+      dplyr::select(data_candidate_p, dplyr::all_of(keep_cols)),
+      dplyr::select(data_reference_p, dplyr::all_of(keep_cols)),
+      by = key, suffix = c("", ref_suffix)
+    )
   } else {
     # Row-count mismatch is decidable from the counts precomputed by
     # validate_row_counts(): abort before the potentially expensive collect
