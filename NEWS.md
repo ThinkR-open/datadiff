@@ -88,6 +88,20 @@
 
 ## Bug fixes
 
+* `equal_mode: normalized` now does what the vignette always said: it implies
+  `case_insensitive = TRUE` and `trim = TRUE` for character columns unless
+  those flags are set explicitly (an explicit value wins over the mode). It
+  previously activated a branch that applied the identity transformation: a
+  user writing `equal_mode: normalized` alone got nothing, silently, and a
+  test even locked that inertia. `write_rules_template()` stops co-writing
+  the default FALSE flags next to a "normalized" mode (they neutralised the
+  implication). Note: a hand-written YAML using `equal_mode: normalized`
+  without explicit flags now normalizes where it previously compared exact,
+  so verdicts on such configs can flip from FAIL to PASS; re-run rather than
+  assume stability. The `date`/`datetime`/`logical` equal-mode parameters are
+  documented as accepted-but-inert for non-character types (text
+  normalization only touches character columns) (issue #27).
+
 * Factor columns are now compared as the character values they display:
   preprocessing converts them, so the text normalization rules
   (`case_insensitive`, `trim`) apply to them and the verdict no longer depends

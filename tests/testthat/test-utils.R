@@ -47,15 +47,42 @@ test_that("preprocess_dataframe applies transformations correctly", {
   expect_equal(result$case_col, c("mixed", "case"))
 })
 
-test_that("preprocess_dataframe handles equal_mode normalized", {
+test_that("equal_mode normalized implies case_insensitive and trim by default", {
   df <- data.frame(text_col = c("  HELLO  ", "WORLD"))
 
   rules <- list(text_col = list(equal_mode = "normalized"))
-
   result <- preprocess_dataframe(df, rules)
+  expect_equal(result$text_col, c("hello", "world"))
 
-  # Should not apply any transformation since case_insensitive and trim are not set
-  expect_equal(result$text_col, c("  HELLO  ", "WORLD"))
+  # An explicit flag overrides the implied default
+  rules_no_trim <- list(text_col = list(equal_mode = "normalized", trim = FALSE))
+  result_no_trim <- preprocess_dataframe(df, rules_no_trim)
+  expect_equal(result_no_trim$text_col, c("  hello  ", "world"))
+
+  rules_no_case <- list(text_col = list(equal_mode = "normalized",
+                                        case_insensitive = FALSE))
+  result_no_case <- preprocess_dataframe(df, rules_no_case)
+  expect_equal(result_no_case$text_col, c("HELLO", "WORLD"))
+})
+
+test_that("equal_mode normalized alone changes the verdict (issue reprex)", {
+  ref  <- data.frame(id = 1:2, s = c("A", " b"), stringsAsFactors = FALSE)
+  cand <- data.frame(id = 1:2, s = c("a", "b"), stringsAsFactors = FALSE)
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  writeLines('
+version: 1
+defaults: {keys: [id], na_equal: true}
+row_validation: {check_count: false}
+by_type:
+  character: {equal_mode: normalized}
+', con = yaml_path)
+
+  res <- suppressMessages(
+    compare_datasets_from_yaml(ref, cand, key = "id", path = yaml_path)
+  )
+  expect_true(res$all_passed)
 })
 
 test_that("preprocess_dataframe handles mixed rules", {
@@ -111,4 +138,33 @@ test_that("preprocess_dataframe applies stringr trim on Arrow objects", {
   result <- preprocess_dataframe(arrow_tbl, rules, schema = schema) %>% dplyr::collect()
 
   expect_equal(result$name, c("Alice", "Bob"))
+})
+
+test_that("a normalized template does not neutralise its own mode", {
+  ref <- data.frame(id = 1:2, s = c("A", " b"), stringsAsFactors = FALSE)
+  cand <- data.frame(id = 1:2, s = c("a", "b"), stringsAsFactors = FALSE)
+
+  yaml_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path), add = TRUE)
+  write_rules_template(ref, key = "id", path = yaml_path,
+                       character_equal_mode = "normalized")
+
+  rules <- read_rules(yaml_path)
+  # The default FALSE flags must not be co-written next to the mode
+  expect_null(rules$by_type$character$case_insensitive)
+  expect_null(rules$by_type$character$trim)
+
+  res <- suppressMessages(
+    compare_datasets_from_yaml(ref, cand, key = "id", path = yaml_path)
+  )
+  expect_true(res$all_passed)
+
+  # An explicitly supplied flag still wins over the mode
+  yaml_path2 <- tempfile(fileext = ".yaml")
+  on.exit(unlink(yaml_path2), add = TRUE)
+  write_rules_template(ref, key = "id", path = yaml_path2,
+                       character_equal_mode = "normalized",
+                       character_trim = FALSE)
+  rules2 <- read_rules(yaml_path2)
+  expect_false(rules2$by_type$character$trim)
 })
