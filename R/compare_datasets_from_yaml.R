@@ -690,40 +690,45 @@ compare_datasets_from_yaml <- function(data_reference,
   is_lazy <- is_non_local(cmp)
   cmp_for_agent <- cmp
   if (is_lazy) {
-    # Length guards: paste0(character(0), "__ok") yields "__ok" (recycle0 is
-    # FALSE by default), a phantom name the previous any_of() silently ate
-    suffix_all <- function(cols, suffix) {
-      if (length(cols) == 0) {
-        return(character(0))
-      }
-      paste0(cols, suffix)
-    }
+    # The name helpers are length-guarded against the recycle0 phantom
+    # (paste0(character(0), "__ok") yields "__ok"); all_of() below then
+    # fails loudly instead of silently dropping a phantom name
     val_cols <- c(
-      suffix_all(tol_cols, suffix = datadiff_suffix_ok),
-      suffix_all(eq_cols, suffix = datadiff_suffix_eq),
+      datadiff_ok_col(tol_cols),
+      datadiff_eq_col(eq_cols),
       if (isTRUE(row_validation_info$check_count)) {
         "row_count_ok"
       } else {
         character(0)
       }
     )
+    if (length(val_cols) == 0) {
+      # Nothing to compute or aggregate (no value checks, no row-count flag):
+      # the verdict rests on the structural coverage rows alone, and a
+      # zero-column CREATE TABLE AS SELECT is invalid SQL on some backends
+      lazy_counts   <- list()
+      cmp_for_agent <- data.frame()
+    } else {
     # all_of(): a validation column silently dropped here would later read as
     # NULL by the boolean accessors, i.e. a false all-pass; fail loudly instead
     cmp_slim      <- dplyr::select(cmp, dplyr::all_of(val_cols))
     tmp_tbl_name  <- datadiff_tmp_table_name()
     # compute() sends CREATE TEMP TABLE AS SELECT ... to DuckDB: all computation
     # (join, boolean expressions) happens inside DuckDB's process, with disk
-    # spilling available for the large join.  We then collect() the slim boolean
-    # result into R so that pointblank receives a plain data.frame - avoiding
-    # DuckDB connection-state issues (is_tbl_mssql crash) during interrogation.
+    # spilling available for the large join. The verdict is then derived from
+    # an SQL aggregate scan of this table; only the FAILING boolean columns
+    # are later collected into R (red path) so that pointblank receives a
+    # plain data.frame - avoiding DuckDB connection-state issues
+    # (is_tbl_mssql crash) during interrogation.
     cmp_slim_computed <- dplyr::compute(cmp_slim, name = tmp_tbl_name, temporary = TRUE)
-    # The slim table only feeds the collect() below. Drop it at exit so that
-    # repeated calls on a user-supplied connection do not accumulate temp
-    # tables for the lifetime of that connection. after = FALSE runs the drop
-    # BEFORE the exit handlers registered earlier, in particular before the
-    # dbDisconnect of the private connection on the Arrow path (on.exit
-    # add = TRUE fires FIFO by default, which would drop on a closed
-    # connection); the try() then only masks genuine failures.
+    # The slim table only feeds the aggregate scan and the failing-column
+    # collect below. Drop it at exit so that repeated calls on a user-supplied
+    # connection do not accumulate temp tables for the lifetime of that
+    # connection. after = FALSE runs the drop BEFORE the exit handlers
+    # registered earlier, in particular before the dbDisconnect of the private
+    # connection on the Arrow path (on.exit add = TRUE fires FIFO by default,
+    # which would drop on a closed connection); the try() then only masks
+    # genuine failures.
     on.exit(
       try(
         DBI::dbRemoveTable(dbplyr::remote_con(cmp_slim_computed), tmp_tbl_name),
@@ -731,20 +736,31 @@ compare_datasets_from_yaml <- function(data_reference,
       ),
       add = TRUE, after = FALSE
     )
-    cmp_for_agent     <- dplyr::collect(cmp_slim_computed)
+    # The verdict needs only (n, n_failed) per column: one aggregate scan in
+    # the database replaces the collect of N x columns booleans into R (the
+    # collect made the green verdict cost O(rows) of R memory, contradicting
+    # the documented promise). Only the FAILING columns are collected later,
+    # on the red path, for the pointblank agent.
+    lazy_counts   <- lazy_boolean_counts(
+      cmp_slim_computed, tol_cols = tol_cols, eq_cols = eq_cols
+    )
+    cmp_for_agent <- data.frame()
+    }
   }
 
   # Faithful, O(columns) record of every check performed, built from the
   # boolean validation columns computed above. It is the SINGLE pass over the
   # data: the verdict and the failing-column sets below both derive from it,
   # so the same booleans are no longer scanned two or three times (and the
-  # local equality booleans no longer recomputed once per scan).
+  # local equality booleans no longer recomputed once per scan). On the lazy
+  # path the counts come from the SQL aggregate scan.
   coverage <- build_coverage(
     tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
     missing_in_candidate = missing_in_candidate,
     type_mismatch_cols = type_mismatch_cols,
     row_validation_info = row_validation_info, row_count_ok = row_count_ok,
-    ref_suffix = ref_suffix, na_equal = na_equal
+    ref_suffix = ref_suffix, na_equal = na_equal,
+    counts = if (is_lazy) lazy_counts else NULL
   )
 
   # Fast all-pass short-circuit.
@@ -801,6 +817,32 @@ compare_datasets_from_yaml <- function(data_reference,
       cmp_for_agent <- add_diff_columns(
         cmp_for_agent, fail$tol, col_rules, ref_suffix, na_equal
       )
+    }
+    # Lazy path: collect ONLY the failing boolean columns (plus the row-count
+    # flag consumed by its validation step) for the agent; the passing
+    # majority stays in the database.
+    if (is_lazy) {
+      red_cols <- c(
+        datadiff_ok_col(fail$tol),
+        datadiff_eq_col(fail$eq),
+        if (isTRUE(row_validation_info$check_count)) {
+          "row_count_ok"
+        } else {
+          character(0)
+        }
+      )
+      cmp_for_agent <- if (length(red_cols) > 0) {
+        dplyr::collect(
+          dplyr::select(cmp_slim_computed, dplyr::all_of(red_cols))
+        )
+      } else {
+        # Structural-only failure (missing columns / type mismatches with no
+        # failing value column and no row-count check): seed ONE row so the
+        # dummy FALSE columns added by setup_pointblank_agent carry a failing
+        # unit - a 0-row dummy step would interrogate 0 units and pass,
+        # flipping pointblank::all_passed() against the coverage verdict
+        data.frame(.datadiff_structural = FALSE)
+      }
     }
     agent <- setup_pointblank_agent(
       cmp_for_agent,
