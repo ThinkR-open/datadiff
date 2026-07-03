@@ -182,6 +182,14 @@ extracts <- pointblank::get_data_extracts(result_fail$reponse)
 extracts[[1]]
 ```
 
+### Measured deviations in the extracts
+
+On the in-memory (data.frame) path, the extracts of a failing tolerance
+column also carry the measured deviation and the applied threshold
+(`<col>__absdiff`, `<col>__thresh`). The lazy path never had these
+diagnostics: its agent works on a slim boolean table and its extracts only
+show the boolean columns.
+
 ### Controlling how many failing rows are extracted
 
 For large datasets, extracting all failing rows can consume significant memory.
@@ -912,6 +920,9 @@ DBI::dbDisconnect(con)
 ```
 
 This works with any DBI-compatible backend: SQLite, PostgreSQL, Snowflake, etc.
+Caveat: the NaN-aware semantics of the lazy booleans are wired for DuckDB
+(`isnan()`); a non-DuckDB backend that stores NaN keeps NULL-only rules for
+those values (see the `add_bool_cols_sql()` notes).
 
 ### Arrow / Parquet (out-of-core)
 

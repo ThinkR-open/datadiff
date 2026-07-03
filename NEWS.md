@@ -86,6 +86,26 @@
   projection (`paste0(character(0), "__ok")` yields `"__ok"`) that `any_of()`
   had been eating since 0.4.8 (issue #17).
 
+## Documentation and input friction
+
+* Doc-vs-code drift resolved (issue #32): `@return` of
+  `compare_datasets_from_yaml()` now lists all 8 elements including
+  `all_passed` (the first one) and describes `agent` truthfully (configured,
+  NOT interrogated - `reponse` is); the README Quick Start shows the
+  zero-configuration mode first and passes `key` explicitly everywhere; the
+  README "Dev part" no longer embeds check/coverage outputs that go stale
+  (it froze results from 0.4.2); the vignette documents the local-only
+  restriction of the `__absdiff`/`__thresh` extract diagnostics and the
+  DuckDB-only NaN caveat of the lazy booleans.
+
+* `read_rules()` speaks to the person who edits the YAML by hand: an
+  unsupported `version` gets an explicit error naming the file, the declared
+  and the supported versions (was a raw `stopifnot` output), and unknown
+  top-level or `defaults` fields (typos like `by_nmae:` or `no_equal:`) get a
+  warning naming them and the known fields, instead of being silently
+  ignored. `write_rules_template()` rejects a `version` other than 1 upfront
+  (it happily wrote version 2 templates that `read_rules()` then refused).
+
 ## Bug fixes
 
 * Three NEWS-vs-code contradictions introduced by the "Perf (#1)" commit after

@@ -89,7 +89,11 @@ inputs ignore a valid value.}
 }
 \value{
 A list containing:
-\item{agent}{Configured pointblank agent with validation results}
+\item{all_passed}{Logical; \code{TRUE} when every check passed. The
+first element of the returned list and the single verdict consumers
+should read.}
+\item{agent}{The configured pointblank agent as built (NOT interrogated:
+the verdict lives in \code{reponse}, which is the interrogated one)}
 \item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
 usable by \code{pointblank::all_passed()} / \code{get_data_extracts()};
 printing it lazily renders a full pointblank-style report from
