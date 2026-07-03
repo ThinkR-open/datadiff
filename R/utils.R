@@ -1,12 +1,12 @@
-#' Operator for default values
-#'
-#' Returns y if x is NULL, otherwise returns x
-#' @name or_operator
-#' @param x Value to check
-#' @param y Default value to return if x is NULL
-#' @return x if not NULL, otherwise y
-#' @export
-`%||%` <- function(x, y) if (is.null(x)) y else x
+# Default-value operator: y if x is NULL, otherwise x. Internal: exporting it
+# would mask rlang's and base R's (R >= 4.4) own %||% at load time.
+`%||%` <- function(x, y) {
+  if (is.null(x)) {
+    y
+  } else {
+    x
+  }
+}
 
 get_col_names <- function(x) {
   nms <- colnames(x)
