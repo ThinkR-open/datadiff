@@ -6,7 +6,7 @@
 \usage{
 setup_pointblank_agent(
   cmp,
-  cols_reference,
+  cols_reference = NULL,
   common_cols,
   tol_cols,
   row_validation_info = NULL,
@@ -25,9 +25,12 @@ setup_pointblank_agent(
 \arguments{
 \item{cmp}{Comparison dataframe with candidate and reference data}
 
-\item{cols_reference}{Character vector of reference column names}
+\item{cols_reference}{Deprecated and unused; supplying any non-NULL value
+raises a warning (an explicit NULL is silent) and the argument will be
+removed in a future release}
 
-\item{common_cols}{Character vector of columns present in both datasets}
+\item{common_cols}{Character vector of equality columns to validate (the
+internal pipeline passes only the failing ones on its failure path)}
 
 \item{tol_cols}{Character vector of columns with tolerance rules}
 
@@ -69,10 +72,26 @@ Configured pointblank agent ready for interrogation
 Creates and configures a pointblank validation agent with all necessary validation steps
 including column existence checks, exact value comparisons, and tolerance validations.
 }
+\details{
+The equality steps validate a \verb{<col>__eq} boolean (one-sided NA fails,
+two-sided NA follows \code{na_equal}, matching the tolerance kernel and the lazy
+SQL): when \code{cmp} does not already carry it, it is derived on the fly for a
+local data.frame. Tolerance steps expect the \verb{<col>__ok} booleans to be
+precomputed (see \code{\link[=add_tolerance_columns]{add_tolerance_columns()}}). A lazy \code{cmp} must carry every
+boolean column already.
+}
 \examples{
-cmp <- data.frame(a = 1:3, a__reference = 1:3, b = c(1.1, 2.2, 3.3),
- b__reference = c(1.0, 2.0, 3.0))
+cmp <- data.frame(
+  a = 1:3, a__reference = 1:3,
+  b = c(1.1, 2.2, 3.3), b__reference = c(1.0, 2.0, 3.0),
+  b__ok = c(FALSE, FALSE, FALSE)
+)
 row_info <- list(check_count = FALSE)
-setup_pointblank_agent(cmp, c("a", "b"), c("a", "b"), "b", row_info,
- "__reference", 0.1, 0.1, "Test", TRUE)
+agent <- setup_pointblank_agent(
+  cmp,
+  common_cols = "a", tol_cols = "b", row_validation_info = row_info,
+  ref_suffix = "__reference", warn_at = 0.1, stop_at = 0.1,
+  label = "Test", na_equal = TRUE
+)
+pointblank::all_passed(pointblank::interrogate(agent))
 }

@@ -540,8 +540,6 @@ compare_datasets_from_yaml <- function(data_reference,
 
   # Analyze columns
   col_analysis <- analyze_columns(data_reference, data_candidate, ignore_columns = ignore_columns)
-  cols_reference <- col_analysis$cols_reference
-  cols_candidate <- col_analysis$cols_candidate
   missing_in_candidate <- col_analysis$missing_in_candidate
   extra_in_candidate <- col_analysis$extra_in_candidate
   common_cols <- col_analysis$common_cols
@@ -864,17 +862,16 @@ compare_datasets_from_yaml <- function(data_reference,
     }
     agent <- setup_pointblank_agent(
       cmp_for_agent,
-      cols_reference,
-      fail$eq,
-      fail$tol,
-      row_validation_info,
-      ref_suffix,
-      warn_at,
-      stop_at,
-      label,
-      na_equal,
-      lang,
-      locale,
+      common_cols = fail$eq,
+      tol_cols = fail$tol,
+      row_validation_info = row_validation_info,
+      ref_suffix = ref_suffix,
+      warn_at = warn_at,
+      stop_at = stop_at,
+      label = label,
+      na_equal = na_equal,
+      lang = lang,
+      locale = locale,
       missing_in_candidate = missing_in_candidate,
       type_mismatch_cols = type_mismatch_cols,
       add_col_exists_steps = FALSE
