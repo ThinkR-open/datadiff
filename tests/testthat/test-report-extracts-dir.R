@@ -29,6 +29,7 @@ test_that("extracts_dir is not created on an all-pass comparison", {
   expect_true(res$all_passed)
 
   out_dir <- tempfile(pattern = "datadiff_extracts_")
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
   datadiff_report_html(res, file = NULL, extracts_dir = out_dir)
   expect_false(dir.exists(out_dir))
 })

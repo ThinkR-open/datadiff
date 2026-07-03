@@ -246,7 +246,8 @@ print.datadiff_report <- function(x, ...) {
 #'   file (via [pointblank::export_report()]). When `NULL`, nothing is written.
 #' @param extracts_dir Optional directory where the failing-row extracts are
 #'   also written as plain CSV files, one per failing validation step, named
-#'   `extract_<step>_<column>.csv`. The CSV buttons inside the HTML report are
+#'   `extract_<step>_<column>.csv` with a zero-padded 4-digit step number
+#'   (e.g. `extract_0002_price.csv`). The CSV buttons inside the HTML report are
 #'   `data:` URI downloads, which some viewers block (Positron / Posit
 #'   Workbench webview): files on disk are the robust alternative. The
 #'   directory is created when needed; nothing is created when there is no
@@ -286,6 +287,10 @@ write_extract_csvs <- function(reponse, extracts_dir) {
   extracts <- tryCatch(
     pointblank::get_data_extracts(reponse),
     error = function(e) {
+      warning(sprintf(
+        "extracts_dir: could not read the data extracts (%s); no CSV written.",
+        conditionMessage(e)
+      ), call. = FALSE)
       list()
     }
   )
