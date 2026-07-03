@@ -46,16 +46,20 @@ candidate <- data.frame(
   category = c("a", "b", "c")  # Different case
 )
 
-# Generate a rules template
+# Zero configuration: near-exact rules generated from the reference structure
+result <- compare_datasets_from_yaml(reference, candidate, key = "id")
+result$all_passed  # FALSE here: exact rules reject the differences above
+
+# To tune tolerances, generate a rules template and edit it
+rules_path <- tempfile(fileext = ".yaml")
 write_rules_template(reference, key = "id",
-                     path = "validation_rules.yaml",
+                     path = rules_path,
                      numeric_abs = 0.01,
                      character_case_insensitive = TRUE)
 
-# Edit the rules file to configure validation (e.g., set tolerances, case sensitivity)
-
-# Compare datasets
-result <- compare_datasets_from_yaml(reference, candidate, path = "validation_rules.yaml")
+# Compare datasets with the tuned rules (key stays explicit)
+result <- compare_datasets_from_yaml(reference, candidate,
+                                     key = "id", path = rules_path)
 
 result$all_passed   # overall verdict (TRUE/FALSE)
 result$coverage     # one row per check performed: column, type, n, n_failed, status
@@ -401,24 +405,11 @@ MIT License
 
 ## Dev part
 
-This `README` has been compiled on the
+Run the checks and the coverage locally (embedded outputs went stale as the
+package evolved, so this README no longer freezes them at compile time):
 
-```{r}
-Sys.time()
-```
-
-Here are the test & coverage results:
-
-```{r error = TRUE}
-devtools::check(quiet = TRUE)
-```
-
-```{r echo = FALSE}
-unloadNamespace("datadiff") 
-```
-
-```{r error = TRUE}
-Sys.setenv("NOT_CRAN" = TRUE)
+```r
+devtools::check()
 covr::package_coverage()
 ```
 

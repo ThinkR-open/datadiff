@@ -50,6 +50,13 @@ write_rules_template <- function(data_reference,
                                  datetime_equal_mode = "exact",
                                  logical_equal_mode = "exact") {
 
+  if (!identical(suppressWarnings(as.numeric(version)), 1)) {
+    stop(sprintf(
+      "Parameter 'version' must be 1 (the only rules version read_rules() accepts), got %s.",
+      version
+    ), call. = FALSE)
+  }
+
   # Validate key if provided
   # Use a 0-row collect to retrieve column names and types: works for both local
   # data.frames and lazy tables (tbl_lazy) without loading all rows.
@@ -122,7 +129,53 @@ write_rules_template <- function(data_reference,
 #' @export
 read_rules <- function(path) {
   r <- read_yaml(path)
-  stopifnot(is.list(r), !is.null(r$version), r$version == 1)
+  if (!is.list(r)) {
+    stop(sprintf("'%s' does not contain a YAML mapping of rules.", path),
+         call. = FALSE)
+  }
+  version_ok <- is.atomic(r$version) &&
+    length(r$version) == 1 &&
+    identical(suppressWarnings(as.numeric(r$version)), 1)
+  if (!version_ok) {
+    shown <- if (is.atomic(r$version) && length(r$version) == 1) {
+      as.character(r$version)
+    } else if (is.null(r$version)) {
+      "<missing>"
+    } else {
+      # lists / vectors from YAML like [1, 2] or {v: 1}: printable summary
+      paste(class(r$version)[1], "of length", length(r$version))
+    }
+    stop(sprintf(
+      "'%s' declares rules version %s; this version of {datadiff} supports version 1 only.",
+      path, shown
+    ), call. = FALSE)
+  }
+  # Hand-edited YAML again: a scalar where a mapping is expected
+  # (defaults: yes) would crash far away on a $ access; refuse it here
+  for (section in c("defaults", "by_type", "by_name", "row_validation")) {
+    if (!is.null(r[[section]]) && !is.list(r[[section]])) {
+      stop(sprintf(
+        "'%s': the '%s' section must be a YAML mapping (key: value lines), not a single value.",
+        path, section
+      ), call. = FALSE)
+    }
+  }
+  # A hand-edited YAML is the main input of this package: flag the fields the
+  # comparison will silently ignore (typos like by_nmae or no_equal)
+  known_top <- c("version", "defaults", "by_type", "by_name", "row_validation")
+  unknown_top <- setdiff(names(r), known_top)
+  known_defaults <- c("na_equal", "ignore_columns", "keys", "key", "label")
+  unknown_defaults <- setdiff(names(r$defaults %||% list()), known_defaults)
+  unknown <- c(unknown_top, unknown_defaults)
+  if (length(unknown) > 0) {
+    warning(sprintf(
+      "'%s' contains field(s) the comparison will ignore: %s. Check for typos (known top-level fields: %s; known defaults fields: %s).",
+      path,
+      paste(sprintf("'%s'", unknown), collapse = ", "),
+      paste(known_top, collapse = ", "),
+      paste(known_defaults, collapse = ", ")
+    ), call. = FALSE)
+  }
   r$defaults <- r$defaults %||% list()
   r$by_type  <- r$by_type  %||% list()
   r$by_name  <- r$by_name  %||% list()
@@ -292,7 +345,11 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #'   effect when Arrow datasets are used: plain `data.frame`s or `tbl_lazy`
 #'   inputs ignore a valid value.
 #' @return A list containing:
-#'   \item{agent}{Configured pointblank agent with validation results}
+#'   \item{all_passed}{Logical; \code{TRUE} when every check passed. The
+#'     first element of the returned list and the single verdict consumers
+#'     should read.}
+#'   \item{agent}{The configured pointblank agent as built (NOT interrogated:
+#'     the verdict lives in \code{reponse}, which is the interrogated one)}
 #'   \item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
 #'     usable by \code{pointblank::all_passed()} / \code{get_data_extracts()};
 #'     printing it lazily renders a full pointblank-style report from
