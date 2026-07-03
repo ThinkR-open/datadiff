@@ -18,7 +18,6 @@ Imports:
     dplyr (>= 1.0.0),
     pointblank (>= 0.12.3),
     rlang (>= 0.4.0),
-    stats,
     tidyselect (>= 1.0.0),
     utils,
     yaml (>= 2.2.0)

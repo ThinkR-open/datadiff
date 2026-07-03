@@ -10,14 +10,15 @@
 # tables keep the SQL-native count()/group_by (cheap inside the database).
 
 format_key_examples <- function(uniq_keys, key) {
-  rows <- unname(apply(uniq_keys, 1, function(r) {
+  n_groups <- nrow(uniq_keys)
+  shown <- utils::head(uniq_keys, 3L)
+  rows <- unname(apply(shown, 1, function(r) {
     paste(key, "=", r, collapse = ", ")
   }))
-  if (length(rows) <= 3) {
-    rows
-  } else {
-    c(rows[1:3], "...")
+  if (n_groups > 3L) {
+    rows <- c(rows, "...")
   }
+  rows
 }
 
 #' @importFrom rlang .data

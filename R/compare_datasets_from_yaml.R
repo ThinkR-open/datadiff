@@ -33,7 +33,6 @@
 #'   (same caveat as `date_equal_mode`)
 #' @return The \code{path} to the written YAML file, returned invisibly.
 #' @importFrom yaml write_yaml
-#' @importFrom stats setNames
 #' @importFrom dplyr collect
 #' @export
 #' @examples
@@ -43,7 +42,7 @@ write_rules_template <- function(data_reference,
                                  key = NULL, label = NULL, path = "rules.yaml", version = 1L, na_equal_default = TRUE,
                                  ignore_columns_default = character(0),
                                  check_count_default = TRUE, expected_count_default = NULL, row_count_tolerance_default = 0,
-                                 numeric_abs = 0.000000001, numeric_rel = 0,
+                                 numeric_abs = 1e-9, numeric_rel = 0,
                                  integer_abs = 0L,
                                  character_equal_mode = "exact", character_case_insensitive = FALSE, character_trim = FALSE,
                                  date_equal_mode = "exact",
@@ -108,7 +107,7 @@ write_rules_template <- function(data_reference,
       datetime = list(equal_mode = datetime_equal_mode),
       logical = list(equal_mode = logical_equal_mode)
     ),
-    by_name = setNames(replicate(length(types), list(), simplify = FALSE), names(types))
+    by_name = as.list(structure(replicate(length(types), list(), simplify = FALSE), names = names(types)))
   )
   write_yaml(x = y, file = path)
   invisible(path)
@@ -363,7 +362,7 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #'     the fast path skips the per-column agent.}
 #'   \item{summary}{Aggregate counts from \code{coverage} (n_checks, n_pass,
 #'     n_fail, n_rows_failed_total, all_passed).}
-#' @importFrom dplyr arrange across left_join %>%
+#' @importFrom dplyr left_join %>%
 #' @importFrom pointblank interrogate
 #' @importFrom dplyr collect
 #' @export
@@ -874,9 +873,9 @@ compare_datasets_from_yaml <- function(data_reference,
     # already carries __eq columns; col_vals_equal(na_pass = ...) alone cannot
     # express these semantics.
     if (!is_lazy && length(fail$eq) > 0) {
-      for (c in fail$eq) {
-        cmp_for_agent[[datadiff_eq_col(c)]] <- eq_col_bool(
-          cmp_for_agent, col = c, ref_suffix = ref_suffix, na_equal = na_equal
+      for (col_nm in fail$eq) {
+        cmp_for_agent[[datadiff_eq_col(col_nm)]] <- eq_col_bool(
+          cmp_for_agent, col = col_nm, ref_suffix = ref_suffix, na_equal = na_equal
         )
       }
     }

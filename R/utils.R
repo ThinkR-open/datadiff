@@ -13,8 +13,12 @@ get_col_names <- function(x) {
   if (length(nms) == 0) names(x) else nms
 }
 
+is_arrow <- function(x) {
+  inherits(x, c("ArrowObject", "arrow_dplyr_query"))
+}
+
 is_non_local <- function(x) {
-  inherits(x, "tbl_lazy") || inherits(x, c("ArrowObject", "arrow_dplyr_query"))
+  inherits(x, "tbl_lazy") || is_arrow(x)
 }
 
 # Package-local mutable state (temp-table counter).
@@ -27,10 +31,6 @@ datadiff_tmp_table_name <- function() {
   counter <- get0("tmp_tbl_counter", envir = .datadiff_state, ifnotfound = 0L) + 1L
   assign("tmp_tbl_counter", value = counter, envir = .datadiff_state)
   sprintf("datadiff_tmp_%d_%d", Sys.getpid(), counter)
-}
-
-is_arrow <- function(x) {
-  inherits(x, c("ArrowObject", "arrow_dplyr_query"))
 }
 
 # Convert an Arrow dataset to a DuckDB tbl_lazy on `con`.
