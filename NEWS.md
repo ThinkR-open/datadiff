@@ -88,6 +88,18 @@
 
 ## Bug fixes
 
+* Three NEWS-vs-code contradictions introduced by the "Perf (#1)" commit after
+  the 0.4.4 release are resolved in the direction 0.4.4 had announced or the
+  docs now tell the truth: `%||%` is internal again (exporting it masked
+  rlang's and base R's own operator at load time; the test that locked the
+  accidental re-export now locks the opposite), the default rules-template
+  label prefix is "comparison" (was still the French "comparaison"), and the
+  vignette states the real report language default (`lang = "fr"`, it claimed
+  English). The three exported helpers that no user-facing doc mentioned
+  (`normalize_text()`, `validate_row_counts()`, `setup_pointblank_agent()`)
+  are now documented in the vignette's utility-functions section with real
+  use cases (issue #26).
+
 * `setup_pointblank_agent()` cleanup: the `cols_reference` argument was never
   read (verified by grep since its introduction) and is now deprecated
   (warning when supplied, removal planned); the local equality steps validate

@@ -70,8 +70,8 @@ write_rules_template <- function(data_reference,
     }
   }
   validate_label(label)
-  if (is.null(label) || label == "") {label <- paste("comparaison", deparse1(substitute(data_reference)))
-
+  if (is.null(label) || label == "") {
+    label <- paste("comparison", deparse1(substitute(data_reference)))
   }
   types <- detect_column_types(.ref_schema)
   # With equal_mode "normalized", writing the default FALSE flags would

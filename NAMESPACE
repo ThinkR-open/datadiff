@@ -2,7 +2,6 @@
 
 S3method(print,datadiff_coverage)
 S3method(print,datadiff_report)
-export("%||%")
 export(add_tolerance_columns)
 export(analyze_columns)
 export(compare_datasets_from_yaml)

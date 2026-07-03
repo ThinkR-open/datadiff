@@ -5,8 +5,9 @@ test_that("%||% operator works correctly", {
   expect_equal(object = NULL %||% NULL, expected = NULL)
 })
 
-test_that("%||% is exported from the package namespace", {
-  expect_true("%||%" %in% getNamespaceExports("datadiff"))
+test_that("%||% is internal (not exported), per NEWS 0.4.4", {
+  # Exporting it masks rlang's and base R's (R >= 4.4) own %||% at load time
+  expect_false("%||%" %in% getNamespaceExports("datadiff"))
 })
 
 test_that("normalize_text handles basic cases", {

@@ -138,18 +138,18 @@ test_that("write_rules_template handles label edge cases", {
   df <- data.frame(id = 1:2, value = 1:2)
 
   # Test NULL label (should use default)
-  template_path <- "test_null_label.yaml"
+  template_path <- tempfile(fileext = ".yaml")
+  on.exit(unlink(template_path), add = TRUE)
   write_rules_template(df, key = "id", label = NULL, path = template_path)
   rules <- read_rules(template_path)
-  expect_match(rules$defaults$label, "comparaison")
-  unlink(template_path)
+  expect_match(rules$defaults$label, "comparison")
 
   # Test empty label (should use default)
-  template_path <- "test_empty_label.yaml"
-  write_rules_template(df, key = "id", label = "", path = template_path)
-  rules <- read_rules(template_path)
-  expect_match(rules$defaults$label, "comparaison")
-  unlink(template_path)
+  template_path2 <- tempfile(fileext = ".yaml")
+  on.exit(unlink(template_path2), add = TRUE)
+  write_rules_template(df, key = "id", label = "", path = template_path2)
+  rules <- read_rules(template_path2)
+  expect_match(rules$defaults$label, "comparison")
 
   # Test very long label
   long_label <- paste(rep("very_long_label", 100), collapse = "_")
