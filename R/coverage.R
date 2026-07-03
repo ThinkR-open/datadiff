@@ -9,7 +9,9 @@
 # matching col_vals_equal(..., na_pass = FALSE).
 tol_col_counts <- function(tbl, col) {
   ok <- tol_col_bool(tbl, col = col)
-  list(n = length(ok), n_failed = sum(is.na(ok) | !ok))
+  # length - sum(TRUE) counts FALSE and NA in one pass without allocating
+  # the two intermediate logical vectors of is.na(ok) | !ok
+  list(n = length(ok), n_failed = length(ok) - sum(ok, na.rm = TRUE))
 }
 
 # n / n_failed for an equality column (resolved boolean, no NA).
@@ -104,23 +106,23 @@ build_coverage <- function(tbl, tol_cols, eq_cols,
   # Existence checks: every common (non-type-mismatch) column gets a col_exists
   # check, distinct from its value check. These pass (the column is present in
   # both datasets by construction), mirroring a full per-column pointblank run.
-  for (c in c(tol_cols, eq_cols)) {
-    add(c, "col_exists", 1L, 0L)
+  for (col_nm in c(tol_cols, eq_cols)) {
+    add(col_nm, "col_exists", 1L, 0L)
   }
-  for (c in tol_cols) {
-    cnt <- counts[[c]] %||% tol_col_counts(tbl, col = c)
-    add(c, "tolerance", cnt$n, cnt$n_failed)
+  for (col_nm in tol_cols) {
+    cnt <- counts[[col_nm]] %||% tol_col_counts(tbl, col = col_nm)
+    add(col_nm, "tolerance", cnt$n, cnt$n_failed)
   }
-  for (c in eq_cols) {
-    cnt <- counts[[c]] %||%
-      eq_col_counts(tbl, col = c, ref_suffix = ref_suffix, na_equal = na_equal)
-    add(c, "equality", cnt$n, cnt$n_failed)
+  for (col_nm in eq_cols) {
+    cnt <- counts[[col_nm]] %||%
+      eq_col_counts(tbl, col = col_nm, ref_suffix = ref_suffix, na_equal = na_equal)
+    add(col_nm, "equality", cnt$n, cnt$n_failed)
   }
-  for (c in missing_in_candidate) {
-    add(c, "missing_column", 1L, 1L)
+  for (col_nm in missing_in_candidate) {
+    add(col_nm, "missing_column", 1L, 1L)
   }
-  for (c in type_mismatch_cols) {
-    add(c, "type_mismatch", 1L, 1L)
+  for (col_nm in type_mismatch_cols) {
+    add(col_nm, "type_mismatch", 1L, 1L)
   }
   if (isTRUE(row_validation_info$check_count)) {
     add("<row_count>", "row_count", 1L, if (isTRUE(row_count_ok)) 0L else 1L)

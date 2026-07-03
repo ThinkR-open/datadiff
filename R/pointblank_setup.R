@@ -71,8 +71,8 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
 
   # Add dummy columns for missing columns BEFORE creating the agent
   # These columns are set to FALSE and we'll check they equal TRUE (will fail)
-  for (c in missing_in_candidate) {
-    dummy_col <- paste0(datadiff_prefix_missing_col, c)
+  for (col_nm in missing_in_candidate) {
+    dummy_col <- paste0(datadiff_prefix_missing_col, col_nm)
     if (is_non_local(cmp)) {
       cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
     } else {
@@ -82,8 +82,8 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
 
   # Add dummy FALSE columns for type-mismatched columns.
   # These will generate a dedicated failing validation step per column.
-  for (c in type_mismatch_cols) {
-    dummy_col <- paste0(datadiff_prefix_type_mismatch, c)
+  for (col_nm in type_mismatch_cols) {
+    dummy_col <- paste0(datadiff_prefix_type_mismatch, col_nm)
     if (is_non_local(cmp)) {
       cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
     } else {
@@ -98,11 +98,11 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
   # express the one-sided/two-sided NA distinction).
   eq_cols <- setdiff(x = common_cols, y = tol_cols)
   if (!is_non_local(cmp)) {
-    for (c in eq_cols) {
-      eq_col <- datadiff_eq_col(c)
+    for (col_nm in eq_cols) {
+      eq_col <- datadiff_eq_col(col_nm)
       if (!(eq_col %in% get_col_names(cmp))) {
         cmp[[eq_col]] <- eq_col_bool(
-          cmp, col = c, ref_suffix = ref_suffix, na_equal = na_equal
+          cmp, col = col_nm, ref_suffix = ref_suffix, na_equal = na_equal
         )
       }
     }
@@ -120,37 +120,37 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
   # Skipped for the non-local path where cmp is a slim table containing only
   # boolean validation columns (the original data columns are not present).
   if (add_col_exists_steps) {
-    for (c in common_cols) {
-      agent <- agent %>% col_exists(columns = all_of(c))
+    for (col_nm in common_cols) {
+      agent <- agent %>% col_exists(columns = all_of(col_nm))
     }
   }
 
   # For missing columns, add a validation that will fail
-  for (c in missing_in_candidate) {
-    dummy_col <- paste0(datadiff_prefix_missing_col, c)
+  for (col_nm in missing_in_candidate) {
+    dummy_col <- paste0(datadiff_prefix_missing_col, col_nm)
     agent <- agent %>%
       col_vals_equal(
         columns = all_of(dummy_col),
         value = TRUE,
         na_pass = FALSE,
-        label = paste("col_exists:", c)
+        label = paste("col_exists:", col_nm)
       )
   }
 
   # For type-mismatched columns, add a validation that will always fail.
-  for (c in type_mismatch_cols) {
-    dummy_col <- paste0(datadiff_prefix_type_mismatch, c)
+  for (col_nm in type_mismatch_cols) {
+    dummy_col <- paste0(datadiff_prefix_type_mismatch, col_nm)
     agent <- agent %>%
       col_vals_equal(
         columns = all_of(dummy_col),
         value = TRUE,
         na_pass = FALSE,
-        label = paste("type_mismatch:", c)
+        label = paste("type_mismatch:", col_nm)
       )
   }
 
-  for (c in eq_cols) {
-    eq_col <- datadiff_eq_col(c)
+  for (col_nm in eq_cols) {
+    eq_col <- datadiff_eq_col(col_nm)
     if (!(eq_col %in% col_names)) {
       # Only reachable with a lazy cmp missing its precomputed boolean:
       # the documented contract requires it (deriving it here would need
@@ -164,8 +164,8 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
       col_vals_equal(columns = all_of(eq_col), value = TRUE, na_pass = FALSE)
   }
 
-  for (c in tol_cols) {
-    ok_col <- datadiff_ok_col(c)
+  for (col_nm in tol_cols) {
+    ok_col <- datadiff_ok_col(col_nm)
     agent <- agent %>% col_vals_equal(columns = all_of(ok_col), value = TRUE, na_pass = FALSE)
   }
 

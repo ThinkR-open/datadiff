@@ -19,7 +19,7 @@ normalize_text <- function(x, case_insensitive = FALSE, trim = FALSE) {
     x <- trimws(x)
   }
   if (case_insensitive) {
-    x <- tolower(x = x)
+    x <- tolower(x)
   }
   x
 }
@@ -63,6 +63,7 @@ preprocess_dataframe <- function(df, col_rules, schema = NULL) {
       }
     }
   }
+  lazy_exprs <- list()
   for (nm in names(col_rules)) {
     cr <- col_rules[[nm]]
     normalized <- identical(cr$equal_mode %||% "exact", "normalized")
@@ -93,23 +94,26 @@ preprocess_dataframe <- function(df, col_rules, schema = NULL) {
 
     if (is_char && should_normalize) {
       if (is_non_local(out)) {
-        # Non-local path: build transformations via dplyr::mutate()
-        nm_sym <- dplyr::sym(nm)
+        # Non-local path: compose ONE expression per column and accumulate;
+        # a single mutate() at the end keeps the dbplyr query-construction
+        # cost O(1) instead of one or two mutate() layers per column
+        expr <- dplyr::sym(nm)
         if (trim) {
           if (is_arrow(out)) {
             # Arrow does not support trimws(); use stringr::str_trim() instead
             if (!requireNamespace("stringr", quietly = TRUE)) {
               stop("Package 'stringr' is required for trim on Arrow objects.")
             }
-            out <- dplyr::mutate(out, !!nm := stringr::str_trim(!!nm_sym))
+            expr <- rlang::expr(stringr::str_trim(!!expr))
           } else {
             # SQL path: trimws() -> SQL TRIM() (translated by dbplyr)
-            out <- dplyr::mutate(out, !!nm := trimws(!!nm_sym))
+            expr <- rlang::expr(trimws(!!expr))
           }
         }
         if (case_insensitive) {
-          out <- dplyr::mutate(out, !!nm := tolower(!!nm_sym))
+          expr <- rlang::expr(tolower(!!expr))
         }
+        lazy_exprs[[nm]] <- expr
       } else {
         out[[nm]] <- normalize_text(
           out[[nm]],
@@ -118,6 +122,9 @@ preprocess_dataframe <- function(df, col_rules, schema = NULL) {
         )
       }
     }
+  }
+  if (length(lazy_exprs) > 0) {
+    out <- dplyr::mutate(out, !!!lazy_exprs)
   }
   out
 }

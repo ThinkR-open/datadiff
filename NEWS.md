@@ -86,6 +86,26 @@
   projection (`paste0(character(0), "__ok")` yields `"__ok"`) that `any_of()`
   had been eating since 0.4.8 (issue #17).
 
+## Chores
+
+* Packaging and code cleanup (issue #34): `dev/` is excluded from the tarball
+  (`.Rbuildignore`); the orphan `inst/templates/rules_template.yaml`
+  (referenced nowhere) is gone; unused `@importFrom` entries dropped
+  (`dplyr::arrange`/`across`, `stats::setNames` replaced by a base
+  construction); the `numeric_abs` default reads `1e-9` instead of a
+  9-zero decimal literal; `is_non_local()` reuses `is_arrow()` instead of
+  duplicating the Arrow class list; `abs(ref_vals)` and the IEEE fp constant
+  are hoisted out of the kernels' expressions and loops;
+  `tol_col_counts()` counts failures without allocating intermediate
+  vectors; `format_key_examples()` truncates to 3 groups before formatting;
+  the lazy `preprocess_dataframe()` composes ONE `mutate()` for all
+  normalized columns instead of one or two layers per column (the dbplyr
+  query-construction anti-pattern eliminated elsewhere in 0.4.8); loop
+  variables no longer shadow `base::c`; the tolerance kernel documents the
+  integer-overflow caveat. Deliberately not changed: `print()` of a report
+  builds the gt object in non-interactive sessions too (printing IS the
+  render), and the `DBI` availability guard stays transitive via `duckdb`.
+
 ## Documentation and input friction
 
 * Doc-vs-code drift resolved (issue #32): `@return` of
