@@ -88,6 +88,17 @@
 
 ## Bug fixes
 
+* `setup_pointblank_agent()` cleanup: the `cols_reference` argument was never
+  read (verified by grep since its introduction) and is now deprecated
+  (warning when supplied, removal planned); the local equality steps validate
+  a derived `<col>__eq` boolean with the shared NA semantics instead of
+  embedding the whole reference vector in each step (O(rows) per step,
+  serialised with the report, and unable to express the one-sided/two-sided
+  NA distinction); the roxygen example is now executable and representative
+  (it used to target a `__ok` column that did not exist); `get_col_names()`
+  is hoisted out of the per-column loop; the dead `cols_reference`/
+  `cols_candidate` locals of the caller are gone (issue #25).
+
 * `equal_mode: normalized` now does what the vignette always said: it implies
   `case_insensitive = TRUE` and `trim = TRUE` for character columns unless
   those flags are set explicitly (an explicit value wins over the mode). It
