@@ -1,4 +1,4 @@
-# Precedence between explicit arguments and YAML rules (issue #20):
+# Precedence between explicit arguments and YAML rules:
 # explicit argument > YAML defaults > built-in default.
 
 test_that("explicit label argument wins over the YAML label", {
@@ -12,16 +12,16 @@ test_that("explicit label argument wins over the YAML label", {
     ref, ref,
     key = "id", path = yaml_path, label = "explicit label"
   )
-  expect_identical(res$reponse$label, "explicit label")
+  expect_identical(res$response$label, "explicit label")
 
   # Without an explicit argument, the YAML label applies
   res_yaml <- compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path)
-  expect_identical(res_yaml$reponse$label, "yaml label")
+  expect_identical(res_yaml$response$label, "yaml label")
 
   # An empty string means "no explicit label": the YAML label still applies
   res_empty <- compare_datasets_from_yaml(ref, ref, key = "id", path = yaml_path,
                                           label = "")
-  expect_identical(res_empty$reponse$label, "yaml label")
+  expect_identical(res_empty$response$label, "yaml label")
 })
 
 test_that("YAML 'keys' field is read without $ partial matching", {

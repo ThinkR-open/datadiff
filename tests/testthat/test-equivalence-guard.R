@@ -3,8 +3,12 @@
 # These tests pin BOTH the verdict (all_passed) AND the exact set of failing
 # cells (as recovered through pointblank::get_data_extracts, the way the
 # enc.mco oracle consumes the result). Optimizations may change HOW the
-# verdict is produced, never WHAT it produces; local and lazy backends must
-# agree. A documented semantic fix (with a NEWS "Breaking changes" entry) MAY
+# verdict is produced, never WHAT it produces. Every case also runs on the
+# lazy backend (see run_compare in helper-equivalence.R): both backends must
+# agree on the verdict, the failing columns and their failing-row counts.
+# The per-cell pinning (key tuples) is local-only, because lazy extracts
+# carry the boolean check columns without the key columns or data values.
+# A documented semantic fix (with a NEWS "Breaking changes" entry) MAY
 # re-pin a verdict here, deliberately and never silently.
 
 KEY <- c("id", ".row")
