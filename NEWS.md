@@ -1,4 +1,4 @@
-# datadiff (development version)
+# datadiff 0.6.0
 
 ## New features
 
@@ -17,7 +17,7 @@
   columns' booleans are collected for the pointblank agent. A green lazy
   comparison previously collected N x columns logicals (~2 GB of R memory
   for 4M rows x 125 columns, 32x the figure the code comment promised); it
-  now keeps O(columns) in R, and `res$reponse` carries a constant-size
+  now keeps O(columns) in R, and `res$response` carries a constant-size
   placeholder instead of N collected rows (issue #22).
 
 * Four avoidable scans and transfers are gone from the lazy path (issue #24):
@@ -128,7 +128,7 @@
 * Doc-vs-code drift resolved (issue #32): `@return` of
   `compare_datasets_from_yaml()` now lists all 8 elements including
   `all_passed` (the first one) and describes `agent` truthfully (configured,
-  NOT interrogated - `reponse` is); the README Quick Start shows the
+  NOT interrogated - `response` is); the README Quick Start shows the
   zero-configuration mode first and passes `key` explicitly everywhere; the
   README "Dev part" no longer embeds check/coverage outputs that go stale
   (it froze results from 0.4.2); the vignette documents the local-only
@@ -254,6 +254,24 @@
 
 ## Breaking changes
 
+The baseline for these entries is datadiff 0.5.0, the version on CRAN
+(functionally identical to 0.4.9: 0.5.0 was a consolidation release with no
+behaviour change).
+
+* The comparison result now exposes the interrogated agent under `response`;
+  the historical French name `reponse` is deprecated. The result gains the
+  class `datadiff_result`, whose `$` and `[[` accessors keep `reponse`
+  readable (with a once-per-session warning) until its removal in a future
+  release. Code that iterates over `names(result)` or tests
+  `"reponse" %in% names(result)` must switch to `response` now;
+  `datadiff_report_html()` still accepts results saved by older versions.
+
+* `%||%` is no longer exported (its export, accidental since 0.4.5, masked
+  the operator from base R >= 4.4 and {rlang} at load time). Code calling
+  `datadiff::%||%` explicitly must switch to the base R or {rlang} operator;
+  code that merely had {datadiff} attached keeps working. See the
+  corresponding entry under "Bug fixes" (issue #26).
+
 * The local (data.frame) path now applies the same NA semantics as the lazy
   path and the numeric tolerance kernel to **equality** columns: a one-sided
   NA (a value facing a missing value, including candidate rows with no
@@ -279,6 +297,13 @@
   non-character `key` with a clear error. An empty key previously fell through
   to a keyless cross join (deprecated dplyr behavior producing a cartesian
   product).
+
+# datadiff 0.5.0
+
+* Release consolidating the 0.4.x maintenance series (wide-table performance,
+  lazy / Arrow / Parquet support, accurate HTML reports and IEEE 754 tolerance
+  handling). No user-facing behaviour changes since 0.4.9; see the entries
+  below for the details.
 
 # datadiff 0.4.9
 
