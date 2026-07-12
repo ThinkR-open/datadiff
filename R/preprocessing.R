@@ -19,7 +19,7 @@ normalize_text <- function(x, case_insensitive = FALSE, trim = FALSE) {
     x <- trimws(x)
   }
   if (case_insensitive) {
-    x <- tolower(x = x)
+    x <- tolower(x)
   }
   x
 }
@@ -30,12 +30,18 @@ normalize_text <- function(x, case_insensitive = FALSE, trim = FALSE) {
 #' such as text normalization for character columns. Supports both local data.frames
 #' and lazy tables (tbl_lazy) via dplyr::mutate().
 #'
+#' On a local data.frame, every factor column (including key and non-compared
+#' columns) is first converted to character: factors are compared as the
+#' character values they display, so the text normalization rules apply to
+#' them and factors with differing level sets compare cleanly.
+#'
 #' @param df A dataframe or lazy table to preprocess
 #' @param col_rules A list of column-specific rules from derive_column_rules()
 #' @param schema Optional local data.frame with 0 rows used to determine column
 #'   types when \code{df} is a lazy table. Obtained via
 #'   \code{dplyr::collect(utils::head(df, 0L))}.
-#' @return Preprocessed dataframe (or lazy table) with transformations applied
+#' @return Preprocessed dataframe (or lazy table) with transformations applied.
+#'   Factor columns of a local data.frame come back as character vectors.
 #' @examples
 #' df <- data.frame(text_col = c("  HELLO  ", "world"))
 #' rules <- list(text_col = list(equal_mode = "normalized", case_insensitive = TRUE, trim = TRUE))
@@ -44,41 +50,70 @@ normalize_text <- function(x, case_insensitive = FALSE, trim = FALSE) {
 #' @export
 preprocess_dataframe <- function(df, col_rules, schema = NULL) {
   out <- df
+  # Factors are classed "character" by detect_column_types() and receive the
+  # character rules, but == on factors with differing level sets errors and
+  # normalize_text() skips non-character vectors. Compare them as the
+  # character values they display. SQL lazy tables convert factors to varchar
+  # upstream; Arrow dictionary columns stay lazy and are handled by the
+  # is.factor(schema[[nm]]) branch of the is_char predicate below.
+  if (!is_non_local(out)) {
+    for (nm in names(out)) {
+      if (is.factor(out[[nm]])) {
+        out[[nm]] <- as.character(out[[nm]])
+      }
+    }
+  }
+  lazy_exprs <- list()
   for (nm in names(col_rules)) {
     cr <- col_rules[[nm]]
-    eq_mode <- cr$equal_mode %||% "exact"
-    case_insensitive <- isTRUE(cr$case_insensitive)
-    trim <- isTRUE(cr$trim)
+    normalized <- identical(cr$equal_mode %||% "exact", "normalized")
 
-    # Apply normalization if equal_mode is "normalized" OR if case_insensitive/trim is TRUE
-    should_normalize <- identical(eq_mode, "normalized") || case_insensitive || trim
+    # equal_mode "normalized" implies BOTH text normalizations unless the
+    # rule sets them explicitly (an explicit FALSE wins over the mode)
+    case_insensitive <- if (is.null(cr$case_insensitive)) {
+      normalized
+    } else {
+      isTRUE(cr$case_insensitive)
+    }
+    trim <- if (is.null(cr$trim)) {
+      normalized
+    } else {
+      isTRUE(cr$trim)
+    }
 
-    # Determine column type: use schema for lazy tables, otherwise inspect df directly
+    should_normalize <- case_insensitive || trim
+
+    # Determine column type: use schema for lazy tables, otherwise inspect df
+    # directly. A factor in the schema counts as character: the local values
+    # were converted above and the character rules apply to it.
     is_char <- if (!is.null(schema)) {
-      is.character(schema[[nm]])
+      is.character(schema[[nm]]) || is.factor(schema[[nm]])
     } else {
       is.character(out[[nm]])
     }
 
     if (is_char && should_normalize) {
       if (is_non_local(out)) {
-        # Non-local path: build transformations via dplyr::mutate()
-        nm_sym <- dplyr::sym(nm)
+        # Non-local path: compose ONE expression per column and accumulate;
+        # a single mutate() at the end keeps the dbplyr query-construction
+        # cost O(1) instead of one or two mutate() layers per column
+        expr <- dplyr::sym(nm)
         if (trim) {
           if (is_arrow(out)) {
             # Arrow does not support trimws(); use stringr::str_trim() instead
             if (!requireNamespace("stringr", quietly = TRUE)) {
               stop("Package 'stringr' is required for trim on Arrow objects.")
             }
-            out <- dplyr::mutate(out, !!nm := stringr::str_trim(!!nm_sym))
+            expr <- rlang::expr(stringr::str_trim(!!expr))
           } else {
             # SQL path: trimws() -> SQL TRIM() (translated by dbplyr)
-            out <- dplyr::mutate(out, !!nm := trimws(!!nm_sym))
+            expr <- rlang::expr(trimws(!!expr))
           }
         }
         if (case_insensitive) {
-          out <- dplyr::mutate(out, !!nm := tolower(!!nm_sym))
+          expr <- rlang::expr(tolower(!!expr))
         }
+        lazy_exprs[[nm]] <- expr
       } else {
         out[[nm]] <- normalize_text(
           out[[nm]],
@@ -87,6 +122,9 @@ preprocess_dataframe <- function(df, col_rules, schema = NULL) {
         )
       }
     }
+  }
+  if (length(lazy_exprs) > 0) {
+    out <- dplyr::mutate(out, !!!lazy_exprs)
   }
   out
 }

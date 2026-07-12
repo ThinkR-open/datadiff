@@ -4,13 +4,23 @@
 \alias{datadiff_report_html}
 \title{Render a comparison result as a pointblank HTML report}
 \usage{
-datadiff_report_html(res, file = NULL)
+datadiff_report_html(res, file = NULL, extracts_dir = NULL)
 }
 \arguments{
 \item{res}{The list returned by \code{\link[=compare_datasets_from_yaml]{compare_datasets_from_yaml()}}.}
 
 \item{file}{Optional path to write the report to as a self-contained HTML
 file (via \code{\link[pointblank:export_report]{pointblank::export_report()}}). When \code{NULL}, nothing is written.}
+
+\item{extracts_dir}{Optional directory where the failing-row extracts are
+also written as plain CSV files, one per failing validation step, named
+\verb{extract_<step>_<column>.csv} with a zero-padded 4-digit step number
+(e.g. \code{extract_0002_price.csv}). Column names are sanitized for the
+file system: any character outside \verb{[A-Za-z0-9_.-]} becomes \verb{_}. The CSV buttons inside the HTML report are
+\verb{data:} URI downloads, which some viewers block (Positron / Posit
+Workbench webview): files on disk are the robust alternative. The
+directory is created when needed; nothing is created when there is no
+extract (all-pass comparison or \code{extract_failed = FALSE}).}
 }
 \value{
 The pointblank agent report object, invisibly.

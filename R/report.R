@@ -1,9 +1,9 @@
 # Lazy pointblank-style report.
 #
-# The fast path keeps res$reponse a real interrogated agent (minimal when green,
+# The fast path keeps res$response a real interrogated agent (minimal when green,
 # targeted when red) so pointblank::all_passed() and get_data_extracts() keep
 # working. We prefix the class "datadiff_report" and attach the coverage so that
-# PRINTING res$reponse builds, on demand, a full pointblank agent report (one
+# PRINTING res$response builds, on demand, a full pointblank agent report (one
 # step per column) from the pre-computed coverage - without re-running the slow
 # per-column interrogation. The build cost is paid only when the report is
 # actually displayed, and memoized so repeated prints are instant.
@@ -14,13 +14,13 @@ report_underlying_col <- function(col) {
   if (identical(col, "row_count_ok")) {
     return("<row_count>")
   }
-  if (startsWith(col, "__missing_col_")) {
-    return(sub("^__missing_col_", "", col))
+  if (startsWith(col, datadiff_prefix_missing_col)) {
+    return(sub(paste0("^", datadiff_prefix_missing_col), "", x = col))
   }
-  if (startsWith(col, "__type_mismatch_")) {
-    return(sub("^__type_mismatch_", "", col))
+  if (startsWith(col, datadiff_prefix_type_mismatch)) {
+    return(sub(paste0("^", datadiff_prefix_type_mismatch), "", x = col))
   }
-  sub("__(ok|eq)$", "", col)
+  sub(sprintf("(%s|%s)$", datadiff_suffix_ok, datadiff_suffix_eq), "", x = col)
 }
 
 # Build a pointblank agent whose report mirrors the coverage table.
@@ -33,17 +33,20 @@ report_underlying_col <- function(col) {
 # synthetic passing row is added for the rest. Without `real_agent`, a purely
 # synthetic count-only agent is produced (no extracts).
 build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
-                                warn_at = 1e-14, stop_at = 1e-14,
+                                warn_at = datadiff_default_warn_at, stop_at = datadiff_default_stop_at,
                                 real_agent = NULL) {
   n <- nrow(coverage)
 
   # Augment the real interrogated agent only when it has genuine failures
-  # (real extracts to preserve). On an all-pass comparison the real agent is the
+  # (real extracts to preserve) or evaluation errors (n_failed is NA there, so
+  # the count test alone would silently route a broken interrogation to the
+  # synthetic all-pass branch). On an all-pass comparison the real agent is the
   # minimal placeholder (a single col_exists step); cloning its template would
   # mislabel every value check as col_exists, so fall through to the synthetic
   # col_vals_equal build instead.
   if (!is.null(real_agent) &&
-      any(real_agent$validation_set$n_failed > 0, na.rm = TRUE)) {
+      (any(real_agent$validation_set$n_failed > 0, na.rm = TRUE) ||
+       any(real_agent$validation_set$eval_error, na.rm = TRUE))) {
     rvs <- real_agent$validation_set
     real_cols <- vapply(seq_len(nrow(rvs)), function(j) {
       report_underlying_col(rvs$column[[j]][1])
@@ -55,6 +58,8 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
     template <- rvs[1, , drop = FALSE]
     rows <- vector("list", n)
     new_extracts <- list()
+    real_eval_error   <- logical(n)
+    real_eval_warning <- logical(n)
     for (i in seq_len(n)) {
       col <- coverage$column[i]
       # Only value checks (tolerance / equality) map to a real step: that is
@@ -62,34 +67,30 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
       # structural checks (missing_column, type_mismatch, row_count) are
       # synthesized from coverage - mapping them to a real step would pull in
       # per-row dummy results (e.g. n_failed = nrow) that contradict coverage.
+      # Consequence: an eval_error on a structural step is intentionally not
+      # surfaced per-column (only value-step evaluation errors are).
       j <- if (coverage$check[i] %in% c("tolerance", "equality")) {
         match(col, real_cols)
       } else {
         NA_integer_
       }
       if (!is.na(j)) {
-        # Genuine interrogated step: keep it, and carry its real extract over to
-        # the new step index.
+        # Genuine interrogated step: keep it, carry its real extract over to
+        # the new step index, and remember its evaluation outcome (the
+        # vectorised coverage overwrite below must not mask a real
+        # eval_error/eval_warning behind FALSE).
         row <- rvs[j, , drop = FALSE]
+        real_eval_error[i]   <- isTRUE(rvs$eval_error[j])
+        real_eval_warning[i] <- isTRUE(rvs$eval_warning[j])
         old_key <- as.character(rvs$i[j])
         if (!is.null(old_extracts[[old_key]])) {
           new_extracts[[as.character(i)]] <- old_extracts[[old_key]]
         }
       } else {
         # Column the targeted agent did not validate (it passed): synthesise a
-        # passing row from the real-row template.
+        # passing row from the real-row template. Every count/verdict field is
+        # set authoritatively from coverage in the vectorised block below.
         row <- template
-        row$eval_error   <- FALSE
-        row$eval_warning <- FALSE
-        row$n        <- as.numeric(coverage$n[i])
-        row$n_passed <- as.numeric(coverage$n[i] - coverage$n_failed[i])
-        row$n_failed <- as.numeric(coverage$n_failed[i])
-        row$f_passed <- if (coverage$n[i] > 0) row$n_passed / coverage$n[i] else 1
-        row$f_failed <- if (coverage$n[i] > 0) coverage$n_failed[i] / coverage$n[i] else 0
-        row$all_passed <- coverage$n_failed[i] == 0L
-        row$warn   <- FALSE
-        row$stop   <- FALSE
-        row$notify <- FALSE
       }
       row$column <- list(coverage$column[i])
       row$label  <- coverage$check[i]
@@ -113,8 +114,8 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
     new_vs$warn         <- coverage$n_failed > 0L & new_vs$f_failed >= warn_at
     new_vs$stop         <- coverage$n_failed > 0L & new_vs$f_failed >= stop_at
     new_vs$notify       <- rep(FALSE, nrow(new_vs))
-    new_vs$eval_error   <- rep(FALSE, nrow(new_vs))
-    new_vs$eval_warning <- rep(FALSE, nrow(new_vs))
+    new_vs$eval_error   <- real_eval_error
+    new_vs$eval_warning <- real_eval_warning
     real_agent$validation_set <- new_vs
     real_agent$extracts <- new_extracts
     return(real_agent)
@@ -179,17 +180,17 @@ mark_agent_interrogated <- function(agent) {
 # Attach the lazy-report capability to a real interrogated agent: prefix the
 # class (print dispatches to print.datadiff_report) and stash what is needed to
 # render the full report, plus a (reference-semantics) environment for caching.
-as_datadiff_report <- function(reponse, coverage, label, lang, locale,
-                               warn_at = 1e-14, stop_at = 1e-14) {
-  attr(reponse, "datadiff_coverage") <- coverage
-  attr(reponse, "datadiff_label")    <- label
-  attr(reponse, "datadiff_lang")     <- lang
-  attr(reponse, "datadiff_locale")   <- locale
-  attr(reponse, "datadiff_warn_at")  <- warn_at
-  attr(reponse, "datadiff_stop_at")  <- stop_at
-  attr(reponse, "datadiff_render")   <- new.env(parent = emptyenv())
-  class(reponse) <- c("datadiff_report", class(reponse))
-  reponse
+as_datadiff_report <- function(response, coverage, label, lang, locale,
+                               warn_at = datadiff_default_warn_at, stop_at = datadiff_default_stop_at) {
+  attr(response, "datadiff_coverage") <- coverage
+  attr(response, "datadiff_label")    <- label
+  attr(response, "datadiff_lang")     <- lang
+  attr(response, "datadiff_locale")   <- locale
+  attr(response, "datadiff_warn_at")  <- warn_at
+  attr(response, "datadiff_stop_at")  <- stop_at
+  attr(response, "datadiff_render")   <- new.env(parent = emptyenv())
+  class(response) <- c("datadiff_report", class(response))
+  response
 }
 
 # Build (once) and memoize the pointblank agent report for a datadiff_report.
@@ -205,8 +206,8 @@ datadiff_render_report <- function(x) {
         label    = attr(x, "datadiff_label") %||% "datadiff report",
         lang     = attr(x, "datadiff_lang") %||% "fr",
         locale   = attr(x, "datadiff_locale") %||% "fr_FR",
-        warn_at  = attr(x, "datadiff_warn_at") %||% 1e-14,
-        stop_at  = attr(x, "datadiff_stop_at") %||% 1e-14,
+        warn_at  = attr(x, "datadiff_warn_at") %||% datadiff_default_warn_at,
+        stop_at  = attr(x, "datadiff_stop_at") %||% datadiff_default_stop_at,
         real_agent = x
       )
     )
@@ -220,7 +221,7 @@ datadiff_render_report <- function(x) {
 #' pointblank-style report (HTML in interactive sessions / viewer). The report
 #' is built on first print and memoized.
 #'
-#' @param x A `datadiff_report` (the `reponse` element of a comparison result).
+#' @param x A `datadiff_report` (the `response` element of a comparison result).
 #' @param ... Unused.
 #' @return `x`, invisibly.
 #' @exportS3Method print datadiff_report
@@ -243,26 +244,81 @@ print.datadiff_report <- function(x, ...) {
 #' @param res The list returned by [compare_datasets_from_yaml()].
 #' @param file Optional path to write the report to as a self-contained HTML
 #'   file (via [pointblank::export_report()]). When `NULL`, nothing is written.
+#' @param extracts_dir Optional directory where the failing-row extracts are
+#'   also written as plain CSV files, one per failing validation step, named
+#'   `extract_<step>_<column>.csv` with a zero-padded 4-digit step number
+#'   (e.g. `extract_0002_price.csv`). Column names are sanitized for the
+#'   file system: any character outside `[A-Za-z0-9_.-]` becomes `_`. The CSV buttons inside the HTML report are
+#'   `data:` URI downloads, which some viewers block (Positron / Posit
+#'   Workbench webview): files on disk are the robust alternative. The
+#'   directory is created when needed; nothing is created when there is no
+#'   extract (all-pass comparison or `extract_failed = FALSE`).
 #' @return The pointblank agent report object, invisibly.
 #' @export
-datadiff_report_html <- function(res, file = NULL) {
+datadiff_report_html <- function(res, file = NULL, extracts_dir = NULL) {
   coverage <- res$coverage
   if (is.null(coverage)) {
     stop("`res` has no `coverage`; was it produced by compare_datasets_from_yaml()?")
   }
-  reponse <- res$reponse
-  agent <- build_report_agent(
-    coverage = coverage,
-    label    = attr(reponse, "datadiff_label") %||% "datadiff report",
-    lang     = attr(reponse, "datadiff_lang") %||% "fr",
-    locale   = attr(reponse, "datadiff_locale") %||% "fr_FR",
-    warn_at  = attr(reponse, "datadiff_warn_at") %||% 1e-14,
-    stop_at  = attr(reponse, "datadiff_stop_at") %||% 1e-14,
-    real_agent = reponse
-  )
-  report <- pointblank::get_agent_report(agent)
+  response <- res[["response"]]
+  if (is.null(response)) {
+    # A result saved by a version where the field was still named `reponse`
+    response <- res[["reponse"]]
+  }
+  report <- if (inherits(response, "datadiff_report")) {
+    # Share the print() memoization: read the cached report when a print
+    # already built it, and feed the cache otherwise
+    datadiff_render_report(response)
+  } else {
+    # No lazy-report wrapper (hand-assembled res): one-shot synthetic build
+    pointblank::get_agent_report(build_report_agent(
+      coverage = coverage,
+      label = "datadiff report",
+      real_agent = response
+    ))
+  }
   if (!is.null(file)) {
     pointblank::export_report(report, filename = file, quiet = TRUE)
   }
+  if (!is.null(extracts_dir)) {
+    write_extract_csvs(response, extracts_dir = extracts_dir)
+  }
   invisible(report)
+}
+
+# Write each failing-step extract of an interrogated agent as a CSV file.
+# Returns the written paths, invisibly.
+write_extract_csvs <- function(response, extracts_dir) {
+  extracts <- tryCatch(
+    pointblank::get_data_extracts(response),
+    error = function(e) {
+      warning(sprintf(
+        "extracts_dir: could not read the data extracts (%s); no CSV written.",
+        conditionMessage(e)
+      ), call. = FALSE)
+      list()
+    }
+  )
+  if (length(extracts) == 0) {
+    return(invisible(character(0)))
+  }
+  if (!dir.exists(extracts_dir)) {
+    dir.create(extracts_dir, recursive = TRUE)
+  }
+  vs <- response$validation_set
+  paths <- vapply(X = names(extracts), FUN = function(nm) {
+    i <- as.integer(nm)
+    # Look the step up by its id (vs$i), not by row position: contiguity of
+    # the validation set is an implicit pointblank invariant, not a contract
+    col <- report_underlying_col(vs$column[[match(i, vs$i)]][1])
+    safe_col <- gsub("[^A-Za-z0-9_.-]", "_", x = col)
+    path <- file.path(
+      extracts_dir,
+      sprintf("extract_%04d_%s.csv", i, safe_col)
+    )
+    utils::write.csv(as.data.frame(extracts[[nm]]), file = path,
+                     row.names = FALSE, fileEncoding = "UTF-8")
+    path
+  }, FUN.VALUE = character(1), USE.NAMES = FALSE)
+  invisible(paths)
 }

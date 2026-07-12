@@ -1,6 +1,207 @@
-# datadiff (development version)
+# datadiff 0.6.0
+
+## New features
+
+* `datadiff_report_html()` gains an `extracts_dir` argument: the failing-row
+  extracts are also written as plain CSV files (one per failing step). The
+  CSV buttons inside the HTML report are `data:` URI downloads, which some
+  viewers block silently (Positron / Posit Workbench webview): files on disk
+  are the robust alternative (issue #10).
+
+## Performance
+
+* The lazy verdict no longer loads the boolean table into R: the per-column
+  (n, n_failed) counts come from ONE SQL aggregate scan over the computed
+  slim table (`SUM(CASE WHEN ok THEN 0 ELSE 1 END)`, counting FALSE and NULL
+  alike, exactly the local reducers' semantics), and only the FAILING
+  columns' booleans are collected for the pointblank agent. A green lazy
+  comparison previously collected N x columns logicals (~2 GB of R memory
+  for 4M rows x 125 columns, 32x the figure the code comment promised); it
+  now keeps O(columns) in R, and `res$response` carries a constant-size
+  placeholder instead of N collected rows (issue #22).
+
+* Four avoidable scans and transfers are gone from the lazy path (issue #24):
+  the two systematic `COUNT(*)` full scans are skipped when nothing consumes
+  them (keyed comparison with `check_count: false`; `validate_row_counts()`
+  gains a `count_rows` parameter, default unchanged); the 0-row schema is
+  collected once per table and reused by every consumer including the
+  auto-generated template (one DB roundtrip saved when `path = NULL`); the
+  keyed join only carries the key and the compared columns, so ignored and
+  one-sided columns no longer travel through the join into the agent (the
+  failing-row extracts consequently no longer show ignored columns); and the
+  lazy duplicate-key detection aggregates in SQL, transferring 2 scalars plus
+  at most 3 example groups instead of every duplicated group.
+
+* The verdict, the coverage and the failing-column sets now come from a
+  SINGLE pass over the boolean validation columns: `build_coverage()` runs
+  first and everything else derives from it (its rows already carry the
+  structural checks). Previously the same booleans were scanned twice on a
+  green comparison and three times on a red one, and each scan recomputed the
+  local equality booleans from scratch. The now-unused scanners
+  (`all_validations_pass()`, `failing_columns()`, the `*_col_passes()`
+  predicates) are removed. Verdicts are byte-identical (equivalence guard
+  green); measured ~6% end to end on a green 200-column x 200k comparison
+  (4.35 s to 4.07 s), the join and preprocessing dominating the rest
+  (issue #21).
+
+* `compute_tolerance_ok()` gains an intermediate fast path for the most common
+  real-data case: a column with NA but no infinity no longer falls back to the
+  full special-value kernel. NaN needs no dedicated handling there (`is.na()`
+  covers NaN, so NaN follows the NA rules identically on both paths); only
+  infinities reroute to the kernel. Bit-identical results, locked by tests;
+  measured ~2.6x faster per NA-bearing column (200k rows, 0.008 s vs 0.020 s).
+  The full kernel itself drops its redundant NaN masks (`both_nan`/`one_nan`
+  are subsets of the NA masks), with unchanged results (issue #23).
+
+## Robustness
+
+* Report construction hardening (all internal to `R/report.R`):
+  `datadiff_report_html()` now shares the `print()` memoization (it reads the
+  cached report and feeds the cache, instead of rebuilding agent + report on
+  every call); a genuine evaluation error on the real agent (`eval_error`,
+  where `n_failed` is NA) is propagated to the report instead of being
+  silently replaced by the synthetic all-pass branch and forced to FALSE; a
+  dead per-row count-injection block was removed (its fields were entirely
+  overwritten by the vectorised coverage block); and the `__ok`/`__eq`/
+  `__missing_col_`/`__type_mismatch_` naming conventions plus the default
+  warn/stop levels are now defined once in `R/constants.R` and shared by the
+  producers, the verdict consumers and the report mapping, so a one-sided
+  rename can no longer silently break the step mapping (issue #29).
+
+* `arrow_dataset_to_duckdb()` builds its SQL safely: Parquet file paths are
+  quoted with `DBI::dbQuoteString()` (a path containing a quote, common in
+  French like `l'export/`, broke the query with a raw SQL syntax error), the
+  temp table name goes through `dbQuoteIdentifier()`, and `read_parquet()`
+  gets `union_by_name = true` so multi-file datasets bind columns by NAME
+  like the `arrow::to_duckdb()` fallback always did. `duckdb_memory_limit`
+  is validated as a size literal before being interpolated into `SET`, and
+  the `SET temp_directory` path is quoted too (issue #30).
+
+* A missing `__ok`/`__eq` boolean validation column now raises an explicit
+  internal error instead of silently reading as an all-pass (`all(NULL)` is
+  `TRUE`, and a dropped column previously produced a PASS row with `n = 0` in
+  the coverage: the worst failure mode for a non-regression tool). The lazy
+  slim-table projection uses `all_of()` (loud) instead of `any_of()` (silent
+  drop); posing that guard immediately surfaced a latent phantom name in the
+  projection (`paste0(character(0), "__ok")` yields `"__ok"`) that `any_of()`
+  had been eating since 0.4.8 (issue #17).
+
+## Chores
+
+* Test-suite cleanup (issue #31): the byte-for-byte duplicated
+  "uses key parameter over YAML rules" block is gone; every test that wrote
+  a fixed-name YAML into the working directory now uses `tempfile()` +
+  `on.exit(unlink())` (CRAN policy, and what NEWS 0.4.4 already claimed);
+  the orphan committed fixtures `tests/testthat/rules.yaml` and `test.yaml`
+  (referenced by no test) are removed; the unrunnable
+  `test-huge-parquet.R` (skip-everywhere + hardcoded Windows paths) moves to
+  `dev/manual-tests/`; the silent conditional assertions of
+  `test-extraction-params.R` (`if (length(extracts) > 0) expect_...`) assert
+  their precondition first, so a cap check can no longer pass vacuously; and
+  the small internal helpers (`format_key_examples()`, `get_col_names()`,
+  `is_non_local()`/`is_arrow()`, the `file = NULL` branch of
+  `datadiff_report_html()`) get direct unit tests. The larger redundancy
+  compression the issue sketches (IEEE 754 in 7 copies, duplicate-key tests
+  in 3 files) is deliberately left for a dedicated pass: it is high-churn
+  refactoring of green tests.
+
+* Packaging and code cleanup (issue #34): `dev/` is excluded from the tarball
+  (`.Rbuildignore`); the orphan `inst/templates/rules_template.yaml`
+  (referenced nowhere) is gone; unused `@importFrom` entries dropped
+  (`dplyr::arrange`/`across`, `stats::setNames` replaced by a base
+  construction); the `numeric_abs` default reads `1e-9` instead of a
+  9-zero decimal literal; `is_non_local()` reuses `is_arrow()` instead of
+  duplicating the Arrow class list; `abs(ref_vals)` and the IEEE fp constant
+  are hoisted out of the kernels' expressions and loops;
+  `tol_col_counts()` counts failures without allocating intermediate
+  vectors; `format_key_examples()` truncates to 3 groups before formatting;
+  the lazy `preprocess_dataframe()` composes ONE `mutate()` for all
+  normalized columns instead of one or two layers per column (the dbplyr
+  query-construction anti-pattern eliminated elsewhere in 0.4.8); loop
+  variables no longer shadow `base::c`; the tolerance kernel documents the
+  integer-overflow caveat. Deliberately not changed: `print()` of a report
+  builds the gt object in non-interactive sessions too (printing IS the
+  render), and the `DBI` availability guard stays transitive via `duckdb`.
+
+## Documentation and input friction
+
+* Doc-vs-code drift resolved (issue #32): `@return` of
+  `compare_datasets_from_yaml()` now lists all 8 elements including
+  `all_passed` (the first one) and describes `agent` truthfully (configured,
+  NOT interrogated - `response` is); the README Quick Start shows the
+  zero-configuration mode first and passes `key` explicitly everywhere; the
+  README "Dev part" no longer embeds check/coverage outputs that go stale
+  (it froze results from 0.4.2); the vignette documents the local-only
+  restriction of the `__absdiff`/`__thresh` extract diagnostics and the
+  DuckDB-only NaN caveat of the lazy booleans.
+
+* `read_rules()` speaks to the person who edits the YAML by hand: an
+  unsupported `version` gets an explicit error naming the file, the declared
+  and the supported versions (was a raw `stopifnot` output), and unknown
+  top-level or `defaults` fields (typos like `by_nmae:` or `no_equal:`) get a
+  warning naming them and the known fields, instead of being silently
+  ignored. `write_rules_template()` rejects a `version` other than 1 upfront
+  (it happily wrote version 2 templates that `read_rules()` then refused).
 
 ## Bug fixes
+
+* Three NEWS-vs-code contradictions introduced by the "Perf (#1)" commit after
+  the 0.4.4 release are resolved in the direction 0.4.4 had announced or the
+  docs now tell the truth: `%||%` is internal again (exporting it masked
+  rlang's and base R's own operator at load time; the test that locked the
+  accidental re-export now locks the opposite), the default rules-template
+  label prefix is "comparison" (was still the French "comparaison"), and the
+  vignette states the real report language default (`lang = "fr"`, it claimed
+  English). The three exported helpers that no user-facing doc mentioned
+  (`normalize_text()`, `validate_row_counts()`, `setup_pointblank_agent()`)
+  are now documented in the vignette's utility-functions section with real
+  use cases (issue #26).
+
+* `setup_pointblank_agent()` cleanup: the `cols_reference` argument was never
+  read (verified by grep since its introduction) and is now deprecated
+  (warning when supplied, removal planned); the local equality steps validate
+  a derived `<col>__eq` boolean with the shared NA semantics instead of
+  embedding the whole reference vector in each step (O(rows) per step,
+  serialised with the report, and unable to express the one-sided/two-sided
+  NA distinction); the roxygen example is now executable and representative
+  (it used to target a `__ok` column that did not exist); `get_col_names()`
+  is hoisted out of the per-column loop; the dead `cols_reference`/
+  `cols_candidate` locals of the caller are gone (issue #25).
+
+* `equal_mode: normalized` now does what the vignette always said: it implies
+  `case_insensitive = TRUE` and `trim = TRUE` for character columns unless
+  those flags are set explicitly (an explicit value wins over the mode). It
+  previously activated a branch that applied the identity transformation: a
+  user writing `equal_mode: normalized` alone got nothing, silently, and a
+  test even locked that inertia. `write_rules_template()` stops co-writing
+  the default FALSE flags next to a "normalized" mode (they neutralised the
+  implication). Note: a hand-written YAML using `equal_mode: normalized`
+  without explicit flags now normalizes where it previously compared exact,
+  so verdicts on such configs can flip from FAIL to PASS; re-run rather than
+  assume stability. The `date`/`datetime`/`logical` equal-mode parameters are
+  documented as accepted-but-inert for non-character types (text
+  normalization only touches character columns) (issue #27).
+
+* Factor columns are now compared as the character values they display:
+  preprocessing converts them, so the text normalization rules
+  (`case_insensitive`, `trim`) apply to them and the verdict no longer depends
+  on `stringsAsFactors` or haven-style imports. This also fixes an opaque
+  error when reference and candidate factors carried different level sets
+  ("level sets of factors are different"). Factor key columns join correctly
+  (issue #28).
+
+* The lazy SQL booleans now reproduce the R tolerance kernel's NaN/Inf
+  semantics: same-sign infinities pass, a one-sided NA/NaN/Inf fails, NaN on
+  both sides follows `na_equal`. The previous CASE WHEN only handled SQL NULL,
+  and NaN is a regular float in DuckDB (`NaN = NaN` is true, NaN sorts above
+  everything): Parquet data containing NaN or infinities could silently get
+  the opposite verdict on the lazy path (false PASS on one-sided NaN/Inf,
+  false FAIL on matching infinities). NaN detection uses `isnan()` on DuckDB;
+  backends without NaN storage (SQLite) keep the NULL rules, and infinity
+  detection falls back to a `> DBL_MAX` comparison there. Numeric equality
+  (non-tolerance) columns get the same NaN-aware NA rules, matching the local
+  path. The new equivalence tests use the R kernel as oracle on a full
+  NaN/Inf/NA grid, on DuckDB and SQLite (issue #13).
 
 * Failing-row extracts again include the explicit measured deviations
   (issue #11). Since the 0.4.8 performance work, `compare_datasets_from_yaml()`
@@ -14,6 +215,95 @@
   the passing majority of columns are untouched, so the 0.4.8 speedups are
   preserved. The lazy (SQL) path is unchanged: its extracts are built from the
   slim boolean table and never carried these diagnostics.
+
+* The lazy path no longer leaks its internal temp table on a user-supplied
+  connection: the slim boolean table is dropped at the end of each call (the
+  Arrow path already closed its private connection). Its name is now derived
+  from a per-process counter plus the PID instead of the wall clock, removing
+  a collision window for two calls in the same millisecond (issue #19).
+
+* Lazy comparisons now work on tables containing a column named `n`. The
+  duplicate-key detection used `dplyr::count()` with its default output name:
+  with a key column named `n`, the filter and the aggregates silently read the
+  key values instead of the counts, producing a wrong duplicate diagnosis.
+  Both lazy helpers now use a reserved count name, and the
+  `globalVariables("n")` declaration that masked the pattern is gone
+  (issue #18).
+
+* Argument vs YAML resolution is now deterministic and documented: explicit
+  argument > YAML `defaults` > built-in default, for both `key` and `label`.
+  Previously the `label` argument was silently overwritten by the YAML label
+  (or the built-in default) whenever `path` was provided, and the YAML `keys`
+  field was only reached through `$` partial matching on a singular `key`
+  lookup, an accident waiting to break. `keys` is now read explicitly, with a
+  legacy singular `key` field honored as fallback; when both are present,
+  `keys` (the canonical field written by `write_rules_template()`) wins
+  (issue #20).
+
+* A positional (key-less) comparison of datasets with different row counts now
+  raises a single clear error built from `error_msg_no_key` and mentioning both
+  row counts. It previously emitted `error_msg_no_key` as an informational
+  message and then crashed on an opaque internal column assignment
+  ("replacement has X rows, data has Y"). The error is raised before any
+  materialisation of non-local tables (the counts are already known), and the
+  collect guard now covers both sides: a positional comparison mixing a local
+  reference with a lazy candidate (or vice versa) previously skipped the
+  candidate collection and failed downstream. On the valid positional path,
+  the reference columns are now appended with a single bind instead of a
+  per-column assignment loop (issue #15).
+
+## Breaking changes
+
+The baseline for these entries is datadiff 0.5.0, the version on CRAN
+(functionally identical to 0.4.9: 0.5.0 was a consolidation release with no
+behaviour change).
+
+* The comparison result now exposes the interrogated agent under `response`;
+  the historical French name `reponse` is deprecated. The result gains the
+  class `datadiff_result`, whose `$` and `[[` accessors keep `reponse`
+  readable (with a once-per-session warning) until its removal in a future
+  release. Code that iterates over `names(result)` or tests
+  `"reponse" %in% names(result)` must switch to `response` now;
+  `datadiff_report_html()` still accepts results saved by older versions.
+
+* `%||%` is no longer exported (its export, accidental since 0.4.5, masked
+  the operator from base R >= 4.4 and {rlang} at load time). Code calling
+  `datadiff::%||%` explicitly must switch to the base R or {rlang} operator;
+  code that merely had {datadiff} attached keeps working. See the
+  corresponding entry under "Bug fixes" (issue #26).
+
+* The local (data.frame) path now applies the same NA semantics as the lazy
+  path and the numeric tolerance kernel to **equality** columns: a one-sided
+  NA (a value facing a missing value, including candidate rows with no
+  reference match after the key join) is always a difference; a two-sided NA
+  follows `na_equal`. Previously, with `na_equal = TRUE` (the default), any NA
+  on either side passed on the local path (`na_pass` semantics), while the
+  same data failed on the lazy path: identical datasets could get opposite
+  verdicts depending on the backend. Comparisons that relied on one-sided NA
+  passing locally will now fail; the two-sided NA behavior is unchanged.
+  On the local failure path, `pointblank::get_data_extracts()` output for a
+  failing equality column now also carries its `<col>__eq` boolean column
+  (as the lazy path always did) (issue #14).
+
+* `compare_datasets_from_yaml()` now raises an explicit error when one or more
+  key columns are absent from either dataset, naming the missing column(s) and
+  the dataset(s) concerned, on every code path (with or without an explicit
+  YAML rules file). It previously emitted a vague message
+  ("could not find key in both data") and returned a truncated 6-field list
+  (no `coverage`, no `summary`) that broke downstream consumers such as
+  `datadiff_report_html()` (issue #16).
+
+* `compare_datasets_from_yaml()` rejects an empty (`character(0)`) or
+  non-character `key` with a clear error. An empty key previously fell through
+  to a keyless cross join (deprecated dplyr behavior producing a cartesian
+  product).
+
+# datadiff 0.5.0
+
+* Release consolidating the 0.4.x maintenance series (wide-table performance,
+  lazy / Arrow / Parquet support, accurate HTML reports and IEEE 754 tolerance
+  handling). No user-facing behaviour changes since 0.4.9; see the entries
+  below for the details.
 
 # datadiff 0.4.9
 

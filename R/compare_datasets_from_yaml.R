@@ -18,15 +18,21 @@
 #' @param numeric_abs Default absolute tolerance for numeric columns
 #' @param numeric_rel Default relative tolerance for numeric columns
 #' @param integer_abs Default absolute tolerance for integer columns
-#' @param character_equal_mode Default comparison mode for character columns ("exact", "normalized")
+#' @param character_equal_mode Default comparison mode for character columns:
+#'   "exact", or "normalized" which implies `case_insensitive = TRUE` and
+#'   `trim = TRUE` unless those flags are set explicitly (an explicit value
+#'   always wins over the mode)
 #' @param character_case_insensitive Logical for case-insensitive character comparison
 #' @param character_trim Logical for trimming whitespace in character comparison
-#' @param date_equal_mode Default comparison mode for date columns
+#' @param date_equal_mode Default comparison mode for date columns. Only
+#'   "exact" has an effect: text normalization applies to character columns
+#'   only, so "normalized" is accepted but changes nothing for this type.
 #' @param datetime_equal_mode Default comparison mode for datetime columns
+#'   (same caveat as `date_equal_mode`)
 #' @param logical_equal_mode Default comparison mode for logical columns
+#'   (same caveat as `date_equal_mode`)
 #' @return The \code{path} to the written YAML file, returned invisibly.
 #' @importFrom yaml write_yaml
-#' @importFrom stats setNames
 #' @importFrom dplyr collect
 #' @export
 #' @examples
@@ -36,12 +42,19 @@ write_rules_template <- function(data_reference,
                                  key = NULL, label = NULL, path = "rules.yaml", version = 1L, na_equal_default = TRUE,
                                  ignore_columns_default = character(0),
                                  check_count_default = TRUE, expected_count_default = NULL, row_count_tolerance_default = 0,
-                                 numeric_abs = 0.000000001, numeric_rel = 0,
+                                 numeric_abs = 1e-9, numeric_rel = 0,
                                  integer_abs = 0L,
                                  character_equal_mode = "exact", character_case_insensitive = FALSE, character_trim = FALSE,
                                  date_equal_mode = "exact",
                                  datetime_equal_mode = "exact",
                                  logical_equal_mode = "exact") {
+
+  if (!identical(suppressWarnings(as.numeric(version)), 1)) {
+    stop(sprintf(
+      "Parameter 'version' must be 1 (the only rules version read_rules() accepts), got %s.",
+      version
+    ), call. = FALSE)
+  }
 
   # Validate key if provided
   # Use a 0-row collect to retrieve column names and types: works for both local
@@ -62,10 +75,22 @@ write_rules_template <- function(data_reference,
       )
     }
   }
-  if (is.null(label) || label == "") {label <- paste("comparaison", deparse1(substitute(data_reference)))
-
+  validate_label(label)
+  if (is.null(label) || label == "") {
+    label <- paste("comparison", deparse1(substitute(data_reference)))
   }
   types <- detect_column_types(.ref_schema)
+  # With equal_mode "normalized", writing the default FALSE flags would
+  # neutralise the mode's implication (an explicit flag wins over the mode):
+  # only include the flags the caller actually supplied
+  character_rules <- list(equal_mode = character_equal_mode)
+  if (!identical(character_equal_mode, "normalized") ||
+      !missing(character_case_insensitive)) {
+    character_rules$case_insensitive <- character_case_insensitive
+  }
+  if (!identical(character_equal_mode, "normalized") || !missing(character_trim)) {
+    character_rules$trim <- character_trim
+  }
   y <- list(
     version = version,
     defaults = list(na_equal = na_equal_default,
@@ -77,12 +102,12 @@ write_rules_template <- function(data_reference,
     by_type = list(
       numeric = list(abs = numeric_abs, rel = numeric_rel),
       integer = list(abs = integer_abs),
-      character = list(equal_mode = character_equal_mode, case_insensitive = character_case_insensitive, trim = character_trim),
+      character = character_rules,
       date = list(equal_mode = date_equal_mode),
       datetime = list(equal_mode = datetime_equal_mode),
       logical = list(equal_mode = logical_equal_mode)
     ),
-    by_name = setNames(replicate(length(types), list(), simplify = FALSE), names(types))
+    by_name = as.list(structure(replicate(length(types), list(), simplify = FALSE), names = names(types)))
   )
   write_yaml(x = y, file = path)
   invisible(path)
@@ -103,12 +128,145 @@ write_rules_template <- function(data_reference,
 #' @export
 read_rules <- function(path) {
   r <- read_yaml(path)
-  stopifnot(is.list(r), !is.null(r$version), r$version == 1)
+  if (!is.list(r)) {
+    stop(sprintf("'%s' does not contain a YAML mapping of rules.", path),
+         call. = FALSE)
+  }
+  version_ok <- is.atomic(r$version) &&
+    length(r$version) == 1 &&
+    identical(suppressWarnings(as.numeric(r$version)), 1)
+  if (!version_ok) {
+    shown <- if (is.atomic(r$version) && length(r$version) == 1) {
+      as.character(r$version)
+    } else if (is.null(r$version)) {
+      "<missing>"
+    } else {
+      # lists / vectors from YAML like [1, 2] or {v: 1}: printable summary
+      paste(class(r$version)[1], "of length", length(r$version))
+    }
+    stop(sprintf(
+      "'%s' declares rules version %s; this version of {datadiff} supports version 1 only.",
+      path, shown
+    ), call. = FALSE)
+  }
+  # Hand-edited YAML again: a scalar where a mapping is expected
+  # (defaults: yes) would crash far away on a $ access; refuse it here
+  for (section in c("defaults", "by_type", "by_name", "row_validation")) {
+    if (!is.null(r[[section]]) && !is.list(r[[section]])) {
+      stop(sprintf(
+        "'%s': the '%s' section must be a YAML mapping (key: value lines), not a single value.",
+        path, section
+      ), call. = FALSE)
+    }
+  }
+  # A hand-edited YAML is the main input of this package: flag the fields the
+  # comparison will silently ignore (typos like by_nmae or no_equal)
+  known_top <- c("version", "defaults", "by_type", "by_name", "row_validation")
+  unknown_top <- setdiff(names(r), known_top)
+  known_defaults <- c("na_equal", "ignore_columns", "keys", "key", "label")
+  unknown_defaults <- setdiff(names(r$defaults %||% list()), known_defaults)
+  unknown <- c(unknown_top, unknown_defaults)
+  if (length(unknown) > 0) {
+    warning(sprintf(
+      "'%s' contains field(s) the comparison will ignore: %s. Check for typos (known top-level fields: %s; known defaults fields: %s).",
+      path,
+      paste(sprintf("'%s'", unknown), collapse = ", "),
+      paste(known_top, collapse = ", "),
+      paste(known_defaults, collapse = ", ")
+    ), call. = FALSE)
+  }
   r$defaults <- r$defaults %||% list()
   r$by_type  <- r$by_type  %||% list()
   r$by_name  <- r$by_name  %||% list()
   r$row_validation <- r$row_validation %||% list(check_count = FALSE, expected_count = NULL, tolerance = 0)
   r
+}
+
+#' Validate a report label argument
+#'
+#' A label must be NULL or a single non-NA character string: anything else
+#' would crash later on the scalar `if (label == "")` fallback checks.
+#'
+#' @param label The label value to validate.
+#' @return \code{NULL}, invisibly. Called for its side effect (error).
+#' @noRd
+validate_label <- function(label) {
+  if (is.null(label)) {
+    return(invisible(NULL))
+  }
+  if (!is.character(label) || length(label) != 1 || is.na(label)) {
+    stop(
+      "Parameter 'label' must be a single character string (or NULL).",
+      call. = FALSE
+    )
+  }
+  invisible(NULL)
+}
+
+#' Validate the duckdb_memory_limit argument
+#'
+#' The value is interpolated into a DuckDB SET statement: only a plain size
+#' literal (number plus optional unit) or a percentage is accepted.
+#'
+#' @param duckdb_memory_limit The value to validate.
+#' @return \code{NULL}, invisibly. Called for its side effect (error).
+#' @noRd
+validate_duckdb_memory_limit <- function(duckdb_memory_limit) {
+  ok <- is.character(duckdb_memory_limit) &&
+    length(duckdb_memory_limit) == 1 &&
+    !is.na(duckdb_memory_limit) &&
+    grepl("^\\s*[0-9]+(\\.[0-9]+)?\\s*(B|KB|MB|GB|TB|KiB|MiB|GiB|TiB|%)?\\s*$",
+          x = duckdb_memory_limit, ignore.case = TRUE)
+  if (!ok) {
+    stop(
+      "Parameter 'duckdb_memory_limit' must be a single size literal such as \"8GB\" (number plus optional unit or %).",
+      call. = FALSE
+    )
+  }
+  invisible(NULL)
+}
+
+#' Validate a comparison key against both datasets
+#'
+#' Shared guard for every code path that consumes a key: checks the type and
+#' emptiness of the key, then its presence in both datasets, and raises an
+#' explicit error naming the missing column(s) and the dataset(s) concerned.
+#'
+#' @param key Character vector of key column names.
+#' @param ref_cols Column names of the reference dataset.
+#' @param cand_cols Column names of the candidate dataset.
+#' @return \code{NULL}, invisibly. Called for its side effect (error).
+#' @noRd
+validate_comparison_key <- function(key, ref_cols, cand_cols) {
+  if (!is.character(key) || length(key) == 0) {
+    stop(
+      "Parameter 'key' must be a non-empty character vector specifying column name(s) to use as join key(s).",
+      call. = FALSE
+    )
+  }
+  missing_key_ref  <- setdiff(key, ref_cols)
+  missing_key_cand <- setdiff(key, cand_cols)
+  if (length(missing_key_ref) > 0 || length(missing_key_cand) > 0) {
+    describe_missing <- function(cols, dataset_name) {
+      if (length(cols) == 0) {
+        return(NULL)
+      }
+      sprintf(
+        "%s missing in %s",
+        paste(sprintf("'%s'", cols), collapse = ", "),
+        dataset_name
+      )
+    }
+    details <- c(
+      describe_missing(missing_key_ref, dataset_name = "data_reference"),
+      describe_missing(missing_key_cand, dataset_name = "data_candidate")
+    )
+    stop(sprintf(
+      "Key column(s) not found: %s.",
+      paste(details, collapse = "; ")
+    ), call. = FALSE)
+  }
+  invisible(NULL)
 }
 
 #' Compare datasets using YAML validation rules
@@ -117,16 +275,45 @@ read_rules <- function(path) {
 #' validation rules defined in a YAML file. Supports exact matching, tolerance-based
 #' comparisons, text normalization, and row count validation.
 #'
+#' @section Argument vs YAML precedence:
+#' Some settings can come both from an explicit argument and from the YAML
+#' rules file. The resolution is always: explicit argument first, then the
+#' YAML `defaults` section, then the built-in default.
+#'
+#' | Setting | Explicit argument | YAML `defaults` field | Built-in default |
+#' |---|---|---|---|
+#' | join key | `key` | `keys` (legacy alias: `key`) | none (positional) |
+#' | report label | `label` | `label` | "Comparing candidate vs reference" |
+#'
+#' When the YAML contains both `keys` and the legacy singular `key` field,
+#' `keys` (the canonical field written by [write_rules_template()]) wins.
+#'
+#' The `key` argument must be a character vector (a non-character value is an
+#' error), while YAML-sourced key values are coerced to character (YAML being
+#' stringly typed, `keys: [2024]` designates the column named "2024").
+#'
+#' Note for `path = NULL`: the auto-generated rules template itself carries a
+#' label (`"Comparison with default rules"`, or the explicit `label` argument),
+#' so that is the label effectively used without a YAML file; the built-in
+#' default above only applies when a YAML file is supplied with an empty or
+#' missing `defaults$label`.
+#'
 #' @param data_reference Reference dataframe, tibble, or lazy table (tbl_lazy)
 #' @param data_candidate Candidate dataframe to validate against reference
-#' @param key Optional character vector of column names to use as join keys for ordered comparison
+#' @param key Optional character vector of column names to use as join keys for
+#'   ordered comparison. Every key column must exist in both datasets; otherwise
+#'   an error is raised naming the missing column(s) and the dataset(s) concerned.
+#'   See the "Argument vs YAML precedence" section.
 #' @param path Path to YAML file containing validation rules. If NULL, default rules are
 #'   generated automatically based on the reference dataset structure.
 #' @param warn_at Warning threshold as fraction of failing tests (default: 1e-14)
 #' @param stop_at Stop threshold as fraction of failing tests (default: 1e-14)
 #' @param ref_suffix Suffix for reference columns in comparison dataframe (default: "__reference")
-#' @param label Descriptive label for the validation report
-#' @param error_msg_no_key Error message when datasets have different row counts without keys
+#' @param label Descriptive label for the validation report. See the
+#'   "Argument vs YAML precedence" section.
+#' @param error_msg_no_key Text of the error raised when a positional (key-less)
+#'   comparison receives datasets with different row counts; the actual row
+#'   counts of both datasets are appended to this text.
 #' @param lang Language code for pointblank reports. Defaults to the
 #'   \code{datadiff.lang} option if set, otherwise \code{"fr"}. Override globally
 #'   with \code{options(datadiff.lang = "en")}. Supported values include
@@ -152,14 +339,23 @@ read_rules <- function(path) {
 #'   may use before spilling intermediate results to `tempdir()`. The default leaves
 #'   headroom for R, Arrow, and the OS alongside DuckDB. Raise it (e.g. `"16GB"`)
 #'   on machines with ample free RAM to reduce disk I/O; lower it (e.g. `"4GB"`)
-#'   when memory is very constrained. Has no effect when both inputs are plain
-#'   `data.frame`s or `tbl_lazy` objects.
-#' @return A list containing:
-#'   \item{agent}{Configured pointblank agent with validation results}
-#'   \item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
+#'   when memory is very constrained. The value is always validated as a size
+#'   literal (an invalid one is an error on every path), but it only takes
+#'   effect when Arrow datasets are used: plain `data.frame`s or `tbl_lazy`
+#'   inputs ignore a valid value.
+#' @return A list of class \code{datadiff_result} containing:
+#'   \item{all_passed}{Logical; \code{TRUE} when every check passed. The
+#'     first element of the returned list and the single verdict consumers
+#'     should read.}
+#'   \item{agent}{The configured pointblank agent as built (NOT interrogated:
+#'     the verdict lives in \code{response}, which is the interrogated one)}
+#'   \item{response}{Interrogated pointblank agent (class \code{datadiff_report}):
 #'     usable by \code{pointblank::all_passed()} / \code{get_data_extracts()};
 #'     printing it lazily renders a full pointblank-style report from
-#'     \code{coverage} (built on demand, memoized).}
+#'     \code{coverage} (built on demand, memoized). Reading it under its
+#'     historical name \code{reponse} still works but is deprecated and
+#'     emits a warning (once per session); the alias will be removed in a
+#'     future release.}
 #'   \item{missing_in_candidate}{Columns missing in candidate data}
 #'   \item{extra_in_candidate}{Extra columns in candidate data}
 #'   \item{applied_rules}{Final column-specific rules applied}
@@ -169,7 +365,7 @@ read_rules <- function(path) {
 #'     the fast path skips the per-column agent.}
 #'   \item{summary}{Aggregate counts from \code{coverage} (n_checks, n_pass,
 #'     n_fail, n_rows_failed_total, all_passed).}
-#' @importFrom dplyr arrange across left_join %>%
+#' @importFrom dplyr left_join %>%
 #' @importFrom pointblank interrogate
 #' @importFrom dplyr collect
 #' @export
@@ -188,12 +384,12 @@ read_rules <- function(path) {
 #' tmp <- tempfile(fileext = ".yaml")
 #' write_rules_template(ref, key = "id", path = tmp)
 #' result <- compare_datasets_from_yaml(ref, cand, key = "id", path = tmp)
-#' result$reponse
+#' result$response
 compare_datasets_from_yaml <- function(data_reference,
                                        data_candidate,
                                        key = NULL,
                                        path = NULL,
-                                       warn_at = 0.00000000000001, stop_at = 0.00000000000001,
+                                       warn_at = 1e-14, stop_at = 1e-14,
                                        ref_suffix = "__reference",
                                        label = NULL,
                                        error_msg_no_key = "Without keys, both tables must have the same number of rows.",
@@ -214,6 +410,8 @@ compare_datasets_from_yaml <- function(data_reference,
   if (!inherits(data_candidate, valid_classes)) {
     stop("data_candidate must be a data.frame, tibble, lazy table, or Arrow object")
   }
+  validate_label(label)
+  validate_duckdb_memory_limit(duckdb_memory_limit)
 
   # Guard: ensure dbplyr is available when lazy tables are used
   if (inherits(data_reference, "tbl_lazy") || inherits(data_candidate, "tbl_lazy")) {
@@ -252,23 +450,55 @@ compare_datasets_from_yaml <- function(data_reference,
     on.exit(duckdb::dbDisconnect(fresh_con, shutdown = TRUE), add = TRUE)
     # Enable disk-spilling.
     DBI::dbExecute(fresh_con, paste0(
-      "SET temp_directory='", gsub("\\\\", "/", tempdir()), "'"
+      "SET temp_directory = ",
+      as.character(DBI::dbQuoteString(fresh_con, x = gsub("\\\\", "/", tempdir())))
     ))
     # Cap DuckDB's buffer pool so it starts spilling well before exhausting
     # system RAM.  The default (80 % of total RAM) leaves no headroom for
     # R, Arrow, and OS memory.  Configurable via duckdb_memory_limit.
-    DBI::dbExecute(fresh_con, paste0("SET memory_limit = '", duckdb_memory_limit, "'"))
+    DBI::dbExecute(fresh_con, paste0(
+      "SET memory_limit = ",
+      as.character(DBI::dbQuoteString(fresh_con, x = duckdb_memory_limit))
+    ))
     if (is_arrow(data_reference))
       data_reference <- arrow_dataset_to_duckdb(data_reference, fresh_con, "datadiff_ref")
     if (is_arrow(data_candidate))
       data_candidate <- arrow_dataset_to_duckdb(data_candidate, fresh_con, "datadiff_cand")
   }
 
-  # If no path provided, create a temporary YAML with default rules
+  # Collect 0-row schemas ONCE for type detection and every consumer below
+  # (key validation, auto-template generation, suffix checks): each collect is
+  # a database roundtrip on lazy inputs.
+  schema_ref  <- dplyr::collect(utils::head(data_reference,  0L))
+  schema_cand <- dplyr::collect(utils::head(data_candidate, 0L))
+
+  # Validate the key argument against BOTH datasets before any other consumer:
+  # the auto-generated-template path (path = NULL) would otherwise reach
+  # write_rules_template() first, which validates the reference only and with
+  # a less specific error.
+  if (!is.null(key)) {
+    validate_comparison_key(
+      key,
+      ref_cols = names(schema_ref),
+      cand_cols = names(schema_cand)
+    )
+  }
+
+  # An empty string means "no explicit label": normalised BEFORE the
+  # auto-template call, so that "" falls through to the template default
+  # instead of triggering write_rules_template's deparse fallback (which
+  # would leak the internal variable name into the report label).
+  if (!is.null(label) && label == "") {
+    label <- NULL
+  }
+
+  # If no path provided, create a temporary YAML with default rules. The 0-row
+  # schema stands in for the reference: write_rules_template() only reads
+  # column names and types, and this avoids a second schema roundtrip.
   if (is.null(path)) {
     path <- tempfile(fileext = ".yaml")
     write_rules_template(
-      data_reference = data_reference,
+      data_reference = schema_ref,
       key = key,
       label = label %||% "Comparison with default rules",
       path = path
@@ -283,8 +513,8 @@ compare_datasets_from_yaml <- function(data_reference,
   }
 
   # Check for reserved suffix conflicts in column names
-  ref_cols_with_suffix <- grep(ref_suffix, get_col_names(data_reference), fixed = TRUE, value = TRUE)
-  cand_cols_with_suffix <- grep(ref_suffix, get_col_names(data_candidate), fixed = TRUE, value = TRUE)
+  ref_cols_with_suffix <- grep(ref_suffix, names(schema_ref), fixed = TRUE, value = TRUE)
+  cand_cols_with_suffix <- grep(ref_suffix, names(schema_cand), fixed = TRUE, value = TRUE)
   if (length(ref_cols_with_suffix) > 0 || length(cand_cols_with_suffix) > 0) {
     conflicting <- unique(c(ref_cols_with_suffix, cand_cols_with_suffix))
     warning(sprintf(
@@ -295,21 +525,29 @@ compare_datasets_from_yaml <- function(data_reference,
 
   rules <- read_rules(path)
 
-  # Collect 0-row schemas for type detection and type-dependent logic.
-  schema_ref  <- dplyr::collect(utils::head(data_reference,  0L))
-  schema_cand <- dplyr::collect(utils::head(data_candidate, 0L))
-
   na_equal <- isTRUE(rules$defaults$na_equal)
   ignore_columns <- rules$defaults$ignore_columns %||% character(0)
-  label <- rules$defaults$label
-  if (is.null(label) || label == "") {label <- "Comparing candidate vs reference"}
 
-  # Use key parameter if provided, otherwise fall back to rules
-  if (is.null(key)) {
-    key <- rules$defaults$key
+  # Precedence: explicit argument > YAML defaults > built-in default.
+  # An empty string means "no explicit label" (same convention as
+  # write_rules_template), so it must not shadow the YAML label.
+  if (!is.null(label) && label == "") {
+    label <- NULL
+  }
+  label <- label %||% rules$defaults[["label"]]
+  if (is.null(label) || label == "") {
+    label <- "Comparing candidate vs reference"
   }
 
-  if (is.null(key)) {message("key is missing")}
+  # Precedence: explicit argument > YAML defaults > none. The canonical YAML
+  # field is "keys" (what write_rules_template() writes); a legacy singular
+  # "key" field is honored as fallback. [[ avoids $ partial matching.
+  if (is.null(key)) {
+    key <- rules$defaults[["keys"]] %||% rules$defaults[["key"]]
+    if (!is.null(key)) {
+      key <- as.character(unlist(key, use.names = FALSE))
+    }
+  }
 
   # Check for duplicate keys (only if key exists in both datasets)
   if (!is.null(key) && all(key %in% get_col_names(data_reference)) && all(key %in% get_col_names(data_candidate))) {
@@ -325,18 +563,20 @@ compare_datasets_from_yaml <- function(data_reference,
       # Build detailed warning message
       warning_parts <- c()
 
+      # %.0f: the lazy counts are whole doubles from SQL aggregates, and
+      # sprintf %d errors on any whole double at or above 2^31
       if (ref_has_dups) {
         warning_parts <- c(warning_parts, sprintf(
-          "data_reference: %d duplicate key value(s) affecting %d rows (examples: %s)",
-          ref_dup_info$n_dup_keys, ref_dup_info$n_dup_rows,
+          "data_reference: %.0f duplicate key value(s) affecting %.0f rows (examples: %s)",
+          as.numeric(ref_dup_info$n_dup_keys), as.numeric(ref_dup_info$n_dup_rows),
           paste(ref_dup_info$examples, collapse = "; ")
         ))
       }
 
       if (cand_has_dups) {
         warning_parts <- c(warning_parts, sprintf(
-          "data_candidate: %d duplicate key value(s) affecting %d rows (examples: %s)",
-          cand_dup_info$n_dup_keys, cand_dup_info$n_dup_rows,
+          "data_candidate: %.0f duplicate key value(s) affecting %.0f rows (examples: %s)",
+          as.numeric(cand_dup_info$n_dup_keys), as.numeric(cand_dup_info$n_dup_rows),
           paste(cand_dup_info$examples, collapse = "; ")
         ))
       }
@@ -357,8 +597,6 @@ compare_datasets_from_yaml <- function(data_reference,
 
   # Analyze columns
   col_analysis <- analyze_columns(data_reference, data_candidate, ignore_columns = ignore_columns)
-  cols_reference <- col_analysis$cols_reference
-  cols_candidate <- col_analysis$cols_candidate
   missing_in_candidate <- col_analysis$missing_in_candidate
   extra_in_candidate <- col_analysis$extra_in_candidate
   common_cols <- col_analysis$common_cols
@@ -399,40 +637,62 @@ compare_datasets_from_yaml <- function(data_reference,
   data_reference_p <- preprocess_dataframe(data_reference, col_rules, schema = schema_ref)
   data_candidate_p <- preprocess_dataframe(data_candidate, col_rules, schema = schema_cand)
 
-  # Get row validation information
-  row_validation_info <- validate_row_counts(data_reference_p, data_candidate_p, rules)
+  # Get row validation information. The counts are only consumed by the
+  # row-count check and the positional path: on a keyed comparison with
+  # check_count off, skip the two COUNT(*) full scans entirely.
+  needs_counts <- isTRUE(rules$row_validation$check_count) || is.null(key)
+  row_validation_info <- validate_row_counts(
+    data_reference_p, data_candidate_p, rules,
+    count_rows = needs_counts
+  )
 
   if (!is.null(key)) {
-    if (isFALSE(all(key %in% get_col_names(data_reference_p))) | isFALSE(all(key %in% get_col_names(data_candidate_p)))) {
-      message("could not find key in both data")
-      return(
-        list(
-          all_passed = FALSE,
-          agent = NULL,
-          reponse = NULL,
-          missing_in_candidate = NULL,
-          extra_in_candidate = NULL,
-          applied_rules = NULL
-        )
-      )
-    }
+    # Re-validated here because the key may come from the YAML rules
+    # (defaults$keys), which the argument-level check upstream cannot see.
+    validate_comparison_key(
+      key,
+      ref_cols = get_col_names(data_reference_p),
+      cand_cols = get_col_names(data_candidate_p)
+    )
 
-    # Join candidate to reference on key to handle different row counts
-    cmp <- left_join(data_candidate_p, data_reference_p, by = key, suffix = c("", ref_suffix))
+    # Join candidate to reference on key to handle different row counts.
+    # Only the key and the compared columns enter the join: ignored and
+    # one-sided columns are never compared, and carrying them through the
+    # join and into the agent costs memory on wide tables.
+    keep_cols <- c(key, common_cols)
+    cmp <- left_join(
+      dplyr::select(data_candidate_p, dplyr::all_of(keep_cols)),
+      dplyr::select(data_reference_p, dplyr::all_of(keep_cols)),
+      by = key, suffix = c("", ref_suffix)
+    )
   } else {
-    # For non-keyed comparison, collect non-local tables (positional join requires local data)
-    if (is_non_local(data_reference_p)) {
-      message("Note: positional comparison requires collecting non-local tables into memory.")
-      data_reference_p <- dplyr::collect(data_reference_p)
-      data_candidate_p <- dplyr::collect(data_candidate_p)
-    }
-    # Use pre-computed counts from validate_row_counts (avoids a second nrow() on lazy)
+    # Row-count mismatch is decidable from the counts precomputed by
+    # validate_row_counts(): abort before the potentially expensive collect
+    # of non-local tables below.
     if (row_validation_info$ref_count != row_validation_info$cand_count) {
-      message(error_msg_no_key)
+      stop(sprintf(
+        "%s (data_reference: %s rows, data_candidate: %s rows).",
+        error_msg_no_key,
+        row_validation_info$ref_count,
+        row_validation_info$cand_count
+      ), call. = FALSE)
+    }
+    # For non-keyed comparison, collect non-local tables on BOTH sides
+    # (positional binding requires local data on each side).
+    if (is_non_local(data_reference_p) || is_non_local(data_candidate_p)) {
+      message("Note: positional comparison requires collecting non-local tables into memory.")
+      if (is_non_local(data_reference_p)) {
+        data_reference_p <- dplyr::collect(data_reference_p)
+      }
+      if (is_non_local(data_candidate_p)) {
+        data_candidate_p <- dplyr::collect(data_candidate_p)
+      }
     }
     cmp <- data_candidate_p
-    for (c in common_cols) {
-      cmp[[paste0(c, ref_suffix)]] <- data_reference_p[[c]]
+    if (length(common_cols) > 0) {
+      ref_block <- data_reference_p[, common_cols, drop = FALSE]
+      names(ref_block) <- paste0(common_cols, ref_suffix)
+      cmp <- dplyr::bind_cols(cmp, ref_block)
     }
   }
 
@@ -466,8 +726,15 @@ compare_datasets_from_yaml <- function(data_reference,
   #    construction + SQL rendering), the dominant cost on wide tables; the
   #    templated SQL is O(1) dbplyr work and lets the database do the rest.
   cmp <- if (is_non_local(cmp)) {
-    add_bool_cols_sql(cmp, tol_cols, eq_cols,
-                      col_rules, ref_suffix, na_equal)
+    # Numeric equality columns get NaN-aware NA rules in the SQL (matching
+    # the local path, where is.na(NaN) is TRUE); isnan() on a non-numeric
+    # column would be a SQL type error.
+    eq_num_cols <- eq_cols[vapply(X = eq_cols, FUN = function(nm) {
+      is.numeric(schema_ref[[nm]])
+    }, FUN.VALUE = logical(1))]
+    add_bool_cols_sql(cmp, tol_cols = tol_cols, eq_cols = eq_cols,
+                      col_rules = col_rules, ref_suffix = ref_suffix,
+                      na_equal = na_equal, eq_num_cols = eq_num_cols)
   } else {
     add_ok_columns(cmp, tol_cols, col_rules, ref_suffix, na_equal)
   }
@@ -496,50 +763,92 @@ compare_datasets_from_yaml <- function(data_reference,
   is_lazy <- is_non_local(cmp)
   cmp_for_agent <- cmp
   if (is_lazy) {
+    # The name helpers are length-guarded against the recycle0 phantom
+    # (paste0(character(0), "__ok") yields "__ok"); all_of() below then
+    # fails loudly instead of silently dropping a phantom name
     val_cols <- c(
-      paste0(tol_cols, "__ok"),
-      paste0(eq_cols, "__eq"),
-      if (isTRUE(row_validation_info$check_count)) "row_count_ok" else character(0)
+      datadiff_ok_col(tol_cols),
+      datadiff_eq_col(eq_cols),
+      if (isTRUE(row_validation_info$check_count)) {
+        "row_count_ok"
+      } else {
+        character(0)
+      }
     )
-    cmp_slim      <- dplyr::select(cmp, dplyr::any_of(val_cols))
-    tmp_tbl_name  <- paste0("datadiff_", gsub("[^0-9]", "", format(Sys.time(), "%H%M%OS3")))
+    if (length(val_cols) == 0) {
+      # Nothing to compute or aggregate (no value checks, no row-count flag):
+      # the verdict rests on the structural coverage rows alone, and a
+      # zero-column CREATE TABLE AS SELECT is invalid SQL on some backends
+      lazy_counts   <- list()
+      cmp_for_agent <- data.frame()
+    } else {
+    # all_of(): a validation column silently dropped here would later read as
+    # NULL by the boolean accessors, i.e. a false all-pass; fail loudly instead
+    cmp_slim      <- dplyr::select(cmp, dplyr::all_of(val_cols))
+    tmp_tbl_name  <- datadiff_tmp_table_name()
     # compute() sends CREATE TEMP TABLE AS SELECT ... to DuckDB: all computation
     # (join, boolean expressions) happens inside DuckDB's process, with disk
-    # spilling available for the large join.  We then collect() the slim boolean
-    # result into R so that pointblank receives a plain data.frame - avoiding
-    # DuckDB connection-state issues (is_tbl_mssql crash) during interrogation.
+    # spilling available for the large join. The verdict is then derived from
+    # an SQL aggregate scan of this table; only the FAILING boolean columns
+    # are later collected into R (red path) so that pointblank receives a
+    # plain data.frame - avoiding DuckDB connection-state issues
+    # (is_tbl_mssql crash) during interrogation.
     cmp_slim_computed <- dplyr::compute(cmp_slim, name = tmp_tbl_name, temporary = TRUE)
-    cmp_for_agent     <- dplyr::collect(cmp_slim_computed)
+    # The slim table only feeds the aggregate scan and the failing-column
+    # collect below. Drop it at exit so that repeated calls on a user-supplied
+    # connection do not accumulate temp tables for the lifetime of that
+    # connection. after = FALSE runs the drop BEFORE the exit handlers
+    # registered earlier, in particular before the dbDisconnect of the private
+    # connection on the Arrow path (on.exit add = TRUE fires FIFO by default,
+    # which would drop on a closed connection); the try() then only masks
+    # genuine failures.
+    on.exit(
+      try(
+        DBI::dbRemoveTable(dbplyr::remote_con(cmp_slim_computed), tmp_tbl_name),
+        silent = TRUE
+      ),
+      add = TRUE, after = FALSE
+    )
+    # The verdict needs only (n, n_failed) per column: one aggregate scan in
+    # the database replaces the collect of N x columns booleans into R (the
+    # collect made the green verdict cost O(rows) of R memory, contradicting
+    # the documented promise). Only the FAILING columns are collected later,
+    # on the red path, for the pointblank agent.
+    lazy_counts   <- lazy_boolean_counts(
+      cmp_slim_computed, tol_cols = tol_cols, eq_cols = eq_cols
+    )
+    cmp_for_agent <- data.frame()
+    }
   }
 
-  # Fast all-pass short-circuit.
-  # The verdict is fully determined by the boolean validation columns already
-  # computed above (plus the structural checks). When everything passes there
-  # are no cells to extract, so the expensive per-column pointblank agent (one
-  # step per column, ~quadratic on wide tables) can be replaced by a constant
-  # cost trivially-passing agent. all_passed stays identical and
-  # get_data_extracts() is empty either way. Any failure falls through to the
-  # full per-column agent so failing cells remain extractable byte-for-byte.
-  all_passed_fast <-
-    length(missing_in_candidate) == 0 &&
-    length(type_mismatch_cols) == 0 &&
-    isTRUE(row_count_ok) &&
-    all_validations_pass(
-      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
-      ref_suffix = ref_suffix, na_equal = na_equal
-    )
-
-  # Faithful, O(columns) record of every check performed, built from the same
-  # booleans the verdict is derived from. Always produced (green and red) so the
-  # caller can see what was verified even when the fast path skips the per-column
-  # pointblank agent.
+  # Faithful, O(columns) record of every check performed, built from the
+  # boolean validation columns computed above. It is the SINGLE pass over the
+  # data: the verdict and the failing-column sets below both derive from it,
+  # so the same booleans are no longer scanned two or three times (and the
+  # local equality booleans no longer recomputed once per scan). On the lazy
+  # path the counts come from the SQL aggregate scan.
   coverage <- build_coverage(
     tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
     missing_in_candidate = missing_in_candidate,
     type_mismatch_cols = type_mismatch_cols,
     row_validation_info = row_validation_info, row_count_ok = row_count_ok,
-    ref_suffix = ref_suffix, na_equal = na_equal
+    ref_suffix = ref_suffix, na_equal = na_equal,
+    counts = if (is_lazy) lazy_counts else NULL
   )
+
+  # Fast all-pass short-circuit.
+  # The verdict is fully determined by the coverage, whose rows already
+  # include the structural checks (missing_column, type_mismatch, row_count).
+  # The row_count row only exists when check_count is TRUE; otherwise
+  # row_count_ok is TRUE by construction (unconditional init above), so the
+  # absent row is neutral.
+  # When everything passes there are no cells to extract, so the expensive
+  # per-column pointblank agent (one step per column, ~quadratic on wide
+  # tables) can be replaced by a constant cost trivially-passing agent.
+  # all_passed stays identical and get_data_extracts() is empty either way.
+  # Any failure falls through to the full per-column agent so failing cells
+  # remain extractable byte-for-byte.
+  all_passed_fast <- all(coverage$n_failed == 0L)
 
   if (all_passed_fast) {
     agent <- build_pass_agent(
@@ -553,10 +862,24 @@ compare_datasets_from_yaml <- function(data_reference,
     # the per-column agent overhead on the passing majority. col_exists steps
     # (which only ever pass) are dropped for the same reason. Structural
     # failures (missing columns, type mismatches, row count) are always kept.
-    fail <- failing_columns(
-      tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
-      ref_suffix = ref_suffix, na_equal = na_equal
+    # The failing sets come from the coverage (same booleans, already scanned).
+    fail_rows <- coverage[coverage$n_failed > 0L, , drop = FALSE]
+    fail <- list(
+      tol = fail_rows$column[fail_rows$check == "tolerance"],
+      eq  = fail_rows$column[fail_rows$check == "equality"]
     )
+    # Local path: materialise the __eq boolean for the failing equality
+    # columns so the pointblank step validates the exact boolean the verdict
+    # used (one-sided NA fails, two-sided NA follows na_equal). The lazy path
+    # already carries __eq columns; col_vals_equal(na_pass = ...) alone cannot
+    # express these semantics.
+    if (!is_lazy && length(fail$eq) > 0) {
+      for (col_nm in fail$eq) {
+        cmp_for_agent[[datadiff_eq_col(col_nm)]] <- eq_col_bool(
+          cmp_for_agent, col = col_nm, ref_suffix = ref_suffix, na_equal = na_equal
+        )
+      }
+    }
     # Materialise the measured deviation (<col>__absdiff) and applied threshold
     # (<col>__thresh) for the FAILING tolerance columns only, so the extracts
     # and the report CSV show the explicit gap (as in <= 0.4.7) at a cost
@@ -568,26 +891,51 @@ compare_datasets_from_yaml <- function(data_reference,
         cmp_for_agent, fail$tol, col_rules, ref_suffix, na_equal
       )
     }
+    # Lazy path: collect ONLY the failing boolean columns (plus the row-count
+    # flag consumed by its validation step) for the agent; the passing
+    # majority stays in the database.
+    if (is_lazy) {
+      red_cols <- c(
+        datadiff_ok_col(fail$tol),
+        datadiff_eq_col(fail$eq),
+        if (isTRUE(row_validation_info$check_count)) {
+          "row_count_ok"
+        } else {
+          character(0)
+        }
+      )
+      cmp_for_agent <- if (length(red_cols) > 0) {
+        dplyr::collect(
+          dplyr::select(cmp_slim_computed, dplyr::all_of(red_cols))
+        )
+      } else {
+        # Structural-only failure (missing columns / type mismatches with no
+        # failing value column and no row-count check): seed ONE row so the
+        # dummy FALSE columns added by setup_pointblank_agent carry a failing
+        # unit - a 0-row dummy step would interrogate 0 units and pass,
+        # flipping pointblank::all_passed() against the coverage verdict
+        data.frame(.datadiff_structural = FALSE)
+      }
+    }
     agent <- setup_pointblank_agent(
       cmp_for_agent,
-      cols_reference,
-      fail$eq,
-      fail$tol,
-      row_validation_info,
-      ref_suffix,
-      warn_at,
-      stop_at,
-      label,
-      na_equal,
-      lang,
-      locale,
+      common_cols = fail$eq,
+      tol_cols = fail$tol,
+      row_validation_info = row_validation_info,
+      ref_suffix = ref_suffix,
+      warn_at = warn_at,
+      stop_at = stop_at,
+      label = label,
+      na_equal = na_equal,
+      lang = lang,
+      locale = locale,
       missing_in_candidate = missing_in_candidate,
       type_mismatch_cols = type_mismatch_cols,
       add_col_exists_steps = FALSE
     )
   }
 
-  reponse <- interrogate(
+  response <- interrogate(
     agent,
     extract_failed = extract_failed,
     get_first_n = get_first_n,
@@ -596,24 +944,24 @@ compare_datasets_from_yaml <- function(data_reference,
     sample_limit = sample_limit
   )
 
-  all_passed <- pointblank::all_passed(reponse)
+  all_passed <- pointblank::all_passed(response)
 
-  # Make reponse render the full pointblank report lazily (on print) from the
+  # Make response render the full pointblank report lazily (on print) from the
   # coverage, while remaining a real interrogated agent for all_passed() and
   # get_data_extracts().
-  reponse <- as_datadiff_report(
-    reponse, coverage = coverage, label = label, lang = lang, locale = locale,
+  response <- as_datadiff_report(
+    response, coverage = coverage, label = label, lang = lang, locale = locale,
     warn_at = warn_at, stop_at = stop_at
   )
 
-  list(
+  new_datadiff_result(list(
     all_passed = all_passed,
     agent = agent,
-    reponse = reponse,
+    response = response,
     missing_in_candidate = missing_in_candidate,
     extra_in_candidate = extra_in_candidate,
     applied_rules = col_rules,
     coverage = coverage,
     summary = summarize_coverage(coverage)
-  )
+  ))
 }

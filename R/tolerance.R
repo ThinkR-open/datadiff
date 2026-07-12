@@ -21,30 +21,35 @@
 #' @param na_equal Logical; whether NA/NaN on both sides count as equal.
 #' @return A list with numeric vectors \code{absdiff}, \code{thresh} and the
 #'   logical vector \code{ok}.
+#' @note When both compared columns are integer, \code{cand - ref} is
+#'   integer subtraction: a difference beyond \code{.Machine$integer.max}
+#'   overflows to NA with a warning (and NA counts as a failure). Cast such
+#'   columns to double upstream if their differences can approach that range.
 #' @noRd
 compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equal) {
+  # is.na() covers NaN in R, so the NA masks subsume the NaN ones: NaN-specific
+  # masks would be redundant (both_nan is a subset of both_na, one_nan of
+  # one_na) and are not computed.
   both_na  <- is.na(cand_vals) & is.na(ref_vals)
   one_na   <- is.na(cand_vals) | is.na(ref_vals)
   both_inf <- is.infinite(cand_vals) & is.infinite(ref_vals)
   same_inf <- both_inf & (sign(cand_vals) == sign(ref_vals))
-  both_nan <- is.nan(cand_vals) & is.nan(ref_vals)
-  one_nan  <- is.nan(cand_vals) | is.nan(ref_vals)
   one_inf  <- is.infinite(cand_vals) | is.infinite(ref_vals)
 
   absdiff <- abs(cand_vals - ref_vals)
   absdiff[same_inf] <- 0
 
-  thresh <- abs_tol + rel_tol * abs(ref_vals)
+  abs_ref <- abs(ref_vals)
+  thresh <- abs_tol + rel_tol * abs_ref
 
-  fp_correction <- 8 * .Machine$double.eps * abs(ref_vals)
+  fp_correction <- 8 * .Machine$double.eps * abs_ref
   fp_correction[!is.finite(fp_correction)] <- 0
   within_tol <- absdiff <= thresh + fp_correction
 
   if (na_equal) {
-    ok <- both_na | both_nan | same_inf |
-      (!one_na & !one_nan & !one_inf & within_tol)
+    ok <- both_na | same_inf | (!one_na & !one_inf & within_tol)
   } else {
-    ok <- same_inf | (!one_na & !one_nan & !one_inf & within_tol)
+    ok <- same_inf | (!one_na & !one_inf & within_tol)
   }
 
   list(absdiff = absdiff, thresh = thresh, ok = ok)
@@ -52,12 +57,19 @@ compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equa
 
 #' Within-tolerance boolean for one column (hot path, ok only)
 #'
-#' Returns ONLY the boolean within-tolerance vector (not absdiff/thresh), with a
-#' fast path for the common case of a column with no NA/NaN/Inf: the dozen
-#' special-value passes of `compute_tolerance_col()` are skipped and the result
-#' reduces to `abs(cand - ref) <= thresh + fp`. Falls back to the full kernel
-#' (taking only its `$ok`) when special values are present, so the result is
-#' identical to `compute_tolerance_col(...)$ok` in every case.
+#' Returns ONLY the boolean within-tolerance vector (not absdiff/thresh), with
+#' two fast paths:
+#' - no NA/NaN/Inf at all: the result reduces to
+#'   `abs(cand - ref) <= thresh + fp` (3 vector passes);
+#' - NA and/or NaN present but no infinity (the most common real-data case):
+#'   the raw comparison yields NA exactly where an NA or NaN is involved, so
+#'   one `ok[is.na(ok)] <- FALSE` pass plus the two-sided correction
+#'   reproduces the kernel at a fraction of its passes (`is.na()` covers NaN,
+#'   so NaN follows the NA rules identically on both paths).
+#'
+#' Only infinities fall back to the full kernel (taking only its `$ok`;
+#' `abs(Inf - Inf)` is NaN but same-sign infinities must PASS), so the result
+#' is identical to `compute_tolerance_col(...)$ok` in every case.
 #'
 #' @inheritParams compute_tolerance_col
 #' @return Logical vector, the same as `compute_tolerance_col(...)$ok`.
@@ -65,21 +77,39 @@ compute_tolerance_col <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equa
 compute_tolerance_ok <- function(cand_vals, ref_vals, abs_tol, rel_tol, na_equal) {
   if (!anyNA(cand_vals) && !anyNA(ref_vals) &&
       all(is.finite(cand_vals)) && all(is.finite(ref_vals))) {
-    thresh <- abs_tol + rel_tol * abs(ref_vals)
-    fp     <- 8 * .Machine$double.eps * abs(ref_vals)
+    abs_ref <- abs(ref_vals)
+    thresh <- abs_tol + rel_tol * abs_ref
+    fp     <- 8 * .Machine$double.eps * abs_ref
     return(abs(cand_vals - ref_vals) <= thresh + fp)
+  }
+  if (!any(is.infinite(cand_vals)) && !any(is.infinite(ref_vals))) {
+    # NA/NaN present but no Inf. NaN needs no dedicated guard: is.na() covers
+    # NaN in R, so NaN follows the NA rules identically here and in the
+    # kernel. Only Inf diverges (abs(Inf - Inf) is NaN, but same-sign
+    # infinities must PASS), hence the infinity-only fallback test.
+    abs_ref <- abs(ref_vals)
+    thresh <- abs_tol + rel_tol * abs_ref
+    fp     <- 8 * .Machine$double.eps * abs_ref
+    ok <- abs(cand_vals - ref_vals) <= thresh + fp
+    # NA wherever an NA/NaN was involved: a one-sided one is a difference...
+    ok[is.na(ok)] <- FALSE
+    # ...and a two-sided one follows na_equal
+    if (na_equal) {
+      ok[is.na(cand_vals) & is.na(ref_vals)] <- TRUE
+    }
+    return(ok)
   }
   compute_tolerance_col(cand_vals, ref_vals, abs_tol, rel_tol, na_equal)$ok
 }
 
 #' Add only the `<col>__ok` tolerance columns (hot path)
 #'
-#' Like [add_tolerance_columns()] but materialises only the boolean `<col>__ok`
+#' Like `add_tolerance_columns()` but materialises only the boolean `<col>__ok`
 #' columns - which alone determine the verdict - in a single bind. The
 #' `<col>__absdiff` / `<col>__thresh` diagnostic columns are not produced here:
 #' no verdict logic reads them, and on the all-pass fast path there are no
 #' extracts to surface them in. On the failure path they are re-added for the
-#' failing columns only by [add_diff_columns()], so the failing-row extracts
+#' failing columns only by `add_diff_columns()`, so the failing-row extracts
 #' keep the explicit measured deviations at a cost proportional to the failing
 #' columns rather than the table width.
 #'
@@ -92,15 +122,15 @@ add_ok_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
   }
   ok_cols <- vector("list", length(tol_cols))
   for (i in seq_along(tol_cols)) {
-    c <- tol_cols[i]
+    col_nm <- tol_cols[i]
     ok_cols[[i]] <- compute_tolerance_ok(
-      cand_vals = cmp[[c]], ref_vals = cmp[[paste0(c, ref_suffix)]],
-      abs_tol = col_rules[[c]][["abs"]] %||% 0,
-      rel_tol = col_rules[[c]][["rel"]] %||% 0,
+      cand_vals = cmp[[col_nm]], ref_vals = cmp[[paste0(col_nm, ref_suffix)]],
+      abs_tol = col_rules[[col_nm]][["abs"]] %||% 0,
+      rel_tol = col_rules[[col_nm]][["rel"]] %||% 0,
       na_equal = na_equal
     )
   }
-  names(ok_cols) <- paste0(tol_cols, "__ok")
+  names(ok_cols) <- datadiff_ok_col(tol_cols)
   cbind(cmp, list2DF(ok_cols))
 }
 
@@ -111,7 +141,7 @@ add_ok_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
 #' failing-row extracts - `pointblank::get_data_extracts()`, the HTML report and
 #' its CSV download - show the explicit gap next to the candidate and reference
 #' values, as they did up to 0.4.7. The `<col>__ok` verdict columns are expected
-#' to exist already (see [add_ok_columns()]) and are not touched. Cost is
+#' to exist already (see `add_ok_columns()`) and are not touched. Cost is
 #' proportional to the number of columns passed, so the all-pass fast path and
 #' the passing majority of columns pay nothing.
 #'
@@ -126,11 +156,11 @@ add_diff_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
   absdiff_cols <- vector("list", m)
   thresh_cols  <- vector("list", m)
   for (i in seq_len(m)) {
-    c <- tol_cols[i]
+    col_nm <- tol_cols[i]
     blocks <- compute_tolerance_col(
-      cand_vals = cmp[[c]], ref_vals = cmp[[paste0(c, ref_suffix)]],
-      abs_tol = col_rules[[c]][["abs"]] %||% 0,
-      rel_tol = col_rules[[c]][["rel"]] %||% 0,
+      cand_vals = cmp[[col_nm]], ref_vals = cmp[[paste0(col_nm, ref_suffix)]],
+      abs_tol = col_rules[[col_nm]][["abs"]] %||% 0,
+      rel_tol = col_rules[[col_nm]][["rel"]] %||% 0,
       na_equal = na_equal
     )
     absdiff_cols[[i]] <- blocks$absdiff
@@ -146,19 +176,34 @@ add_diff_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal) {
 #' On the lazy path, building the per-column tolerance/equality booleans with
 #' `dplyr::mutate()` is O(expressions) on the R side (dbplyr query construction
 #' and SQL rendering dominate; e.g. ~60 s of 64 s for 300 columns). This builds
-#' the same boolean columns in a single templated SQL `SELECT`, leaving DuckDB to
-#' execute. The CASE WHEN logic reproduces exactly the `dplyr::case_when` used
-#' previously (NULL handling and IEEE 754 fp correction inlined), so the lazy
-#' verdict is unchanged.
+#' the same boolean columns in a single templated SQL `SELECT`, leaving the
+#' database to execute.
+#'
+#' The CASE WHEN logic reproduces the R tolerance kernel
+#' (`compute_tolerance_col`) including its NaN/Inf semantics: same-sign
+#' infinities pass, a one-sided NA/NaN/Inf fails, NA/NaN on both sides follows
+#' `na_equal`. SQL NULL only covers R's NA; NaN is a regular float in DuckDB
+#' (ordered above everything, `NaN = NaN` true), so NaN detection uses
+#' `isnan()` there. Backends without NaN storage (SQLite turns NaN into NULL
+#' on insert) fall back to the NULL rules; infinity detection uses a
+#' `> DBL_MAX` comparison where `isinf()` is unavailable. Known limitation:
+#' NaN detection is only wired for DuckDB (the tested lazy backend). A
+#' non-DuckDB backend that does store NaN (e.g. PostgreSQL) keeps the
+#' NULL-only rules for NaN, i.e. the pre-fix semantics on those values.
 #'
 #' @param cmp A lazy table (the join of candidate and reference).
 #' @param tol_cols,eq_cols Tolerance / equality column names.
 #' @param col_rules Per-column rules (abs / rel).
 #' @param ref_suffix Reference-column suffix.
 #' @param na_equal Logical; NA equality semantics.
+#' @param eq_num_cols Subset of `eq_cols` holding numeric data: their equality
+#'   CASE gets the NaN-aware NA rules (matching the local path, where
+#'   `is.na(NaN)` is TRUE). Non-numeric columns must not receive `isnan()`
+#'   (type error in SQL).
 #' @return A lazy table with the `<col>__ok` / `<col>__eq` columns added.
 #' @noRd
-add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix, na_equal) {
+add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix,
+                              na_equal, eq_num_cols = character(0)) {
   if (length(tol_cols) == 0 && length(eq_cols) == 0) {
     return(cmp)
   }
@@ -168,35 +213,77 @@ add_bool_cols_sql <- function(cmp, tol_cols, eq_cols, col_rules, ref_suffix, na_
   num <- function(x) sprintf("%.17g", x)
   fp_eps <- 8 * .Machine$double.eps
 
-  case_bool <- function(cc, rc, cond) {
-    if (na_equal) {
-      sprintf(paste0("CASE WHEN %s IS NULL AND %s IS NULL THEN TRUE ",
-                     "WHEN %s IS NULL OR %s IS NULL THEN FALSE ",
-                     "WHEN %s THEN TRUE ELSE FALSE END"),
-              cc, rc, cc, rc, cond)
+  is_duckdb <- inherits(con, "duckdb_connection")
+  nan_sql <- function(x) {
+    if (is_duckdb) {
+      sprintf("isnan(%s)", x)
     } else {
-      sprintf(paste0("CASE WHEN %s IS NULL OR %s IS NULL THEN FALSE ",
-                     "WHEN %s THEN TRUE ELSE FALSE END"),
-              cc, rc, cond)
+      "FALSE"
     }
   }
+  inf_sql <- function(x) {
+    if (is_duckdb) {
+      sprintf("isinf(%s)", x)
+    } else {
+      sprintf("(%s > 1.7976931348623157e308 OR %s < -1.7976931348623157e308)",
+              x, x)
+    }
+  }
+  # R's is.na(): SQL NULL or NaN
+  na_like <- function(x) {
+    sprintf("(%s IS NULL OR %s)", x, nan_sql(x))
+  }
+  na_equal_lit <- if (na_equal) "TRUE" else "FALSE"
 
-  tol_exprs <- vapply(X = tol_cols, FUN = function(c) {
-    cc <- q(c)
-    rc <- q(paste0(c, ref_suffix))
-    at <- col_rules[[c]][["abs"]] %||% 0
-    rt <- col_rules[[c]][["rel"]] %||% 0
+  # Tolerance kernel semantics: two-sided NA/NaN -> na_equal; one-sided
+  # NA/NaN -> FALSE; same-sign infinities -> TRUE; remaining infinity
+  # (one-sided or opposite signs) -> FALSE; else the finite comparison.
+  case_tol <- function(cc, rc, cond) {
+    sprintf(paste0(
+      "CASE WHEN %s AND %s THEN %s ",
+      "WHEN %s OR %s THEN FALSE ",
+      "WHEN %s AND %s AND ((%s > 0) = (%s > 0)) THEN TRUE ",
+      "WHEN %s OR %s THEN FALSE ",
+      "WHEN %s THEN TRUE ELSE FALSE END"),
+      na_like(cc), na_like(rc), na_equal_lit,
+      na_like(cc), na_like(rc),
+      inf_sql(cc), inf_sql(rc), cc, rc,
+      inf_sql(cc), inf_sql(rc),
+      cond
+    )
+  }
+
+  # Equality semantics: two-sided NA(-like) -> na_equal; one-sided -> FALSE;
+  # else plain SQL equality (infinities compare correctly there). NaN joins
+  # the NA rules only for numeric columns (nan_aware).
+  case_eq <- function(cc, rc, nan_aware) {
+    n <- if (nan_aware) na_like else function(x) sprintf("%s IS NULL", x)
+    sprintf(paste0(
+      "CASE WHEN %s AND %s THEN %s ",
+      "WHEN %s OR %s THEN FALSE ",
+      "WHEN %s = %s THEN TRUE ELSE FALSE END"),
+      n(cc), n(rc), na_equal_lit,
+      n(cc), n(rc),
+      cc, rc
+    )
+  }
+
+  tol_exprs <- vapply(X = tol_cols, FUN = function(col_nm) {
+    cc <- q(col_nm)
+    rc <- q(paste0(col_nm, ref_suffix))
+    at <- col_rules[[col_nm]][["abs"]] %||% 0
+    rt <- col_rules[[col_nm]][["rel"]] %||% 0
     within <- sprintf("ABS(%s - %s) <= (%s + %s * ABS(%s)) + %s * ABS(%s)",
                       cc, rc, num(at), num(rt), rc, num(fp_eps), rc)
-    sprintf("%s AS %s", case_bool(cc, rc, within), q(paste0(c, "__ok")))
+    sprintf("%s AS %s", case_tol(cc, rc, cond = within), q(datadiff_ok_col(col_nm)))
   }, FUN.VALUE = character(1), USE.NAMES = FALSE)
 
-  eq_exprs <- vapply(X = eq_cols, FUN = function(c) {
-    cc <- q(c)
-    rc <- q(paste0(c, ref_suffix))
+  eq_exprs <- vapply(X = eq_cols, FUN = function(col_nm) {
+    cc <- q(col_nm)
+    rc <- q(paste0(col_nm, ref_suffix))
     sprintf("%s AS %s",
-            case_bool(cc, rc, sprintf("%s = %s", cc, rc)),
-            q(paste0(c, "__eq")))
+            case_eq(cc, rc, nan_aware = col_nm %in% eq_num_cols),
+            q(datadiff_eq_col(col_nm)))
   }, FUN.VALUE = character(1), USE.NAMES = FALSE)
 
   exprs <- c(tol_exprs, eq_exprs)
@@ -229,32 +316,35 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
     # (one for __absdiff + __thresh, one for __ok) regardless of how many columns
     # there are. Each individual mutate() adds one lazy_query node to the dbplyr
     # plan; with 100+ columns the nesting would exceed R's expression stack limit.
-    if (length(tol_cols) == 0) return(cmp)
+    if (length(tol_cols) == 0) {
+      return(cmp)
+    }
+
+    # IEEE 754: floating-point subtraction introduces rounding errors
+    # proportional to the magnitude of the operands, not to the threshold.
+    # e.g. 100.01 - 100.00 = 0.0100000000000051 > 0.01 in double precision.
+    # Adding a few ULPs of the reference magnitude absorbs this error without
+    # meaningfully widening the user-specified tolerance.
+    fp_eps <- 8 * .Machine$double.eps
 
     exprs_diff <- list()
     exprs_ok   <- list()
 
-    for (c in tol_cols) {
-      reference_c <- paste0(c, ref_suffix)
-      abs_tol     <- col_rules[[c]][["abs"]] %||% 0
-      rel_tol     <- col_rules[[c]][["rel"]] %||% 0
-      c_sym       <- dplyr::sym(c)
+    for (col_nm in tol_cols) {
+      reference_c <- paste0(col_nm, ref_suffix)
+      abs_tol     <- col_rules[[col_nm]][["abs"]] %||% 0
+      rel_tol     <- col_rules[[col_nm]][["rel"]] %||% 0
+      c_sym       <- dplyr::sym(col_nm)
       rc_sym      <- dplyr::sym(reference_c)
-      absdiff_col <- paste0(c, "__absdiff")
-      thresh_col  <- paste0(c, "__thresh")
-      ok_col      <- paste0(c, "__ok")
+      absdiff_col <- paste0(col_nm, "__absdiff")
+      thresh_col  <- paste0(col_nm, "__thresh")
+      ok_col      <- datadiff_ok_col(col_nm)
       absdiff_sym <- dplyr::sym(absdiff_col)
       thresh_sym  <- dplyr::sym(thresh_col)
 
       exprs_diff[[absdiff_col]] <- rlang::expr(abs(!!c_sym - !!rc_sym))
       exprs_diff[[thresh_col]]  <- rlang::expr(!!abs_tol + !!rel_tol * abs(!!rc_sym))
 
-      # IEEE 754: floating-point subtraction introduces rounding errors
-      # proportional to the magnitude of the operands, not to the threshold.
-      # e.g. 100.01 - 100.00 = 0.0100000000000051 > 0.01 in double precision.
-      # Adding a few ULPs of the reference magnitude absorbs this error without
-      # meaningfully widening the user-specified tolerance.
-      fp_eps <- 8 * .Machine$double.eps
       if (na_equal) {
         exprs_ok[[ok_col]] <- rlang::expr(dplyr::case_when(
           is.na(!!c_sym) & is.na(!!rc_sym) ~ TRUE,
@@ -293,11 +383,11 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
   ok_cols      <- vector("list", m)
 
   for (i in seq_len(m)) {
-    c <- tol_cols[i]
+    col_nm <- tol_cols[i]
     blocks <- compute_tolerance_col(
-      cand_vals = cmp[[c]], ref_vals = cmp[[paste0(c, ref_suffix)]],
-      abs_tol = col_rules[[c]][["abs"]] %||% 0,
-      rel_tol = col_rules[[c]][["rel"]] %||% 0,
+      cand_vals = cmp[[col_nm]], ref_vals = cmp[[paste0(col_nm, ref_suffix)]],
+      abs_tol = col_rules[[col_nm]][["abs"]] %||% 0,
+      rel_tol = col_rules[[col_nm]][["rel"]] %||% 0,
       na_equal = na_equal
     )
     absdiff_cols[[i]] <- blocks$absdiff
@@ -307,7 +397,7 @@ add_tolerance_columns <- function(cmp, tol_cols, col_rules, ref_suffix, na_equal
 
   names(absdiff_cols) <- paste0(tol_cols, "__absdiff")
   names(thresh_cols)  <- paste0(tol_cols, "__thresh")
-  names(ok_cols)      <- paste0(tol_cols, "__ok")
+  names(ok_cols)      <- datadiff_ok_col(tol_cols)
 
   cbind(cmp, list2DF(c(absdiff_cols, thresh_cols, ok_cols)))
 }

@@ -2,7 +2,7 @@
 # already-computed boolean validation columns into one row per check actually
 # performed (column, check type, n rows, n_failed, status). It must list EVERY
 # column and stay consistent with the verdict (status == PASS iff the column
-# passes in all_validations_pass / failing_columns).
+# passes when deriving the verdict).
 
 # --- build_coverage: value checks (tolerance) -------------------------------
 

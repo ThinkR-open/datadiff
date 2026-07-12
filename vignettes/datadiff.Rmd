@@ -86,10 +86,14 @@ names(result)
 | `coverage` | One row per check actually performed (see below) |
 | `summary` | Aggregate counts derived from `coverage` |
 | `agent` | The configured pointblank agent (before interrogation) |
-| `reponse` | A `datadiff_report`: a real pointblank agent that renders the full report lazily when printed (see below) |
+| `response` | A `datadiff_report`: a real pointblank agent that renders the full report lazily when printed (see below) |
 | `missing_in_candidate` | Columns present in reference but absent from candidate |
 | `extra_in_candidate` | Columns present in candidate but absent from reference |
 | `applied_rules` | The effective per-column rules that were applied |
+
+The agent used to be exposed under the French name `reponse`; that alias
+still resolves (with a once-per-session deprecation warning) and will be
+removed in a future release: switch to `response`.
 
 ### Seeing exactly what was checked
 
@@ -118,14 +122,14 @@ result$coverage[result$coverage$status == "FAIL", ]
 
 ### The full pointblank report
 
-`result$reponse` stays a genuine pointblank agent - `pointblank::all_passed()`
+`result$response` stays a genuine pointblank agent - `pointblank::all_passed()`
 and `pointblank::get_data_extracts()` work on it as usual. **Printing** it
 renders the full per-column pointblank report (HTML in interactive sessions).
 That report is built only when you display it, so a comparison itself stays
 fast even on very wide tables:
 
 ```{r print-report, eval = FALSE}
-print(result$reponse)                              # renders the report on demand
+print(result$response)                              # renders the report on demand
 datadiff_report_html(result, file = "report.html") # ...or save it to a file
 ```
 
@@ -159,12 +163,16 @@ result_fail <- compare_datasets_from_yaml(ref_fail, cand_fail, key = "id")
 result_fail$all_passed
 
 # Rows that failed at least one step
-failed_rows <- pointblank::get_sundered_data(result_fail$reponse, type = "fail")
+failed_rows <- pointblank::get_sundered_data(result_fail$response, type = "fail")
 failed_rows
 ```
 
 The `type = "pass"` variant returns rows that passed all steps. This is
 useful to understand the scope of the problem before investigating further.
+Note: on an all-pass LAZY comparison, `response` carries a constant-size
+placeholder rather than the source rows (the verdict is computed by SQL
+aggregates without loading the data into R), so sundering is only
+meaningful on a failing comparison.
 
 For each failing tolerance column, the step extracts returned by
 `pointblank::get_data_extracts()` (and the CSV download in the HTML report)
@@ -174,9 +182,19 @@ threshold that was applied. These are computed for the failing columns only,
 so wide all-pass comparisons pay no extra cost.
 
 ```{r failing-extracts}
-extracts <- pointblank::get_data_extracts(result_fail$reponse)
+extracts <- pointblank::get_data_extracts(result_fail$response)
 extracts[[1]]
 ```
+
+### Measured deviations in the extracts
+
+On the in-memory (data.frame) path, the extracts of a failing tolerance
+column also carry the measured deviation and the applied threshold
+(`<col>__absdiff`, `<col>__thresh`). The lazy path never had these
+diagnostics: its agent works on a slim boolean table and its extracts only
+show the boolean columns - no key columns and no data values. To inspect the
+failing rows of a lazy comparison with their keys and values, re-run the
+comparison locally on the failing subset, or query the source directly.
 
 ### Controlling how many failing rows are extracted
 
@@ -239,6 +257,11 @@ defaults:
     - updated_at
   keys: id                # join key (single or composite)
   label: ref vs cand      # label shown in the pointblank report
+
+# Note: when a setting exists both as a function argument and in the YAML,
+# the explicit argument wins: key > defaults$keys, label > defaults$label.
+# The canonical YAML field for the join key is "keys" (a legacy singular
+# "key" field is honored as fallback when "keys" is absent).
 
 row_validation:
   check_count: yes
@@ -792,11 +815,42 @@ cmp_annotated <- add_tolerance_columns(cmp, "value", rules_debug,
 cmp_annotated[, c("value__absdiff", "value__thresh", "value__ok")]
 ```
 
+### `normalize_text()`
+
+The text-normalization primitive used by `preprocess_dataframe()`, handy on
+its own to normalize a vector the same way a comparison would:
+
+```{r normalize-text}
+normalize_text(c("  Hello ", "WORLD"), case_insensitive = TRUE, trim = TRUE)
+```
+
+### `validate_row_counts()`
+
+Computes the row-count validation information (counts, expected count,
+tolerance) for a pair of datasets and a rules object, without running the
+full comparison:
+
+```{r validate-row-counts}
+rules_rc <- list(row_validation = list(check_count = TRUE,
+                                       expected_count = NULL, tolerance = 0))
+validate_row_counts(ref, cand, rules = rules_rc)
+```
+
+### `setup_pointblank_agent()`
+
+Builds the configured (not yet interrogated) pointblank agent the comparison
+uses, for advanced consumers who want to add their own steps before
+interrogating. The equality steps validate `<col>__eq` booleans and the
+tolerance steps expect precomputed `<col>__ok` booleans (see
+`add_tolerance_columns()`); most users never need to call it directly.
+
 ---
 
 ## 14. Language and locale
 
-By default, pointblank reports are rendered in English. You can change
+By default, pointblank reports are rendered in French (`lang = "fr"`,
+`locale = "fr_FR"`; override globally with
+`options(datadiff.lang = "en", datadiff.locale = "en_US")`). You can change
 the language per call or globally for a session.
 
 ### Per call
@@ -842,7 +896,7 @@ number of failing columns, not the total.
 This optimisation is invisible to you: `all_passed`, `coverage`, and the
 extracted failing cells are exactly what a full per-column run would produce.
 The only thing deferred is the **rendered** report, which is built on demand
-when you print `result$reponse` (section 2).
+when you print `result$response` (section 2).
 
 ### Lazy tables (dbplyr)
 
@@ -872,6 +926,9 @@ DBI::dbDisconnect(con)
 ```
 
 This works with any DBI-compatible backend: SQLite, PostgreSQL, Snowflake, etc.
+Caveat: the NaN-aware semantics of the lazy booleans are wired for DuckDB
+(`isnan()`); a non-DuckDB backend that stores NaN keeps NULL-only rules for
+those values (see the `add_bool_cols_sql()` notes).
 
 ### Arrow / Parquet (out-of-core)
 

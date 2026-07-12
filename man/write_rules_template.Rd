@@ -54,17 +54,24 @@ comparison. If NULL, comparison is positional (row by row).}
 
 \item{integer_abs}{Default absolute tolerance for integer columns}
 
-\item{character_equal_mode}{Default comparison mode for character columns ("exact", "normalized")}
+\item{character_equal_mode}{Default comparison mode for character columns:
+"exact", or "normalized" which implies \code{case_insensitive = TRUE} and
+\code{trim = TRUE} unless those flags are set explicitly (an explicit value
+always wins over the mode)}
 
 \item{character_case_insensitive}{Logical for case-insensitive character comparison}
 
 \item{character_trim}{Logical for trimming whitespace in character comparison}
 
-\item{date_equal_mode}{Default comparison mode for date columns}
+\item{date_equal_mode}{Default comparison mode for date columns. Only
+"exact" has an effect: text normalization applies to character columns
+only, so "normalized" is accepted but changes nothing for this type.}
 
-\item{datetime_equal_mode}{Default comparison mode for datetime columns}
+\item{datetime_equal_mode}{Default comparison mode for datetime columns
+(same caveat as \code{date_equal_mode})}
 
-\item{logical_equal_mode}{Default comparison mode for logical columns}
+\item{logical_equal_mode}{Default comparison mode for logical columns
+(same caveat as \code{date_equal_mode})}
 }
 \value{
 The \code{path} to the written YAML file, returned invisibly.

@@ -29,7 +29,10 @@ compare_datasets_from_yaml(
 
 \item{data_candidate}{Candidate dataframe to validate against reference}
 
-\item{key}{Optional character vector of column names to use as join keys for ordered comparison}
+\item{key}{Optional character vector of column names to use as join keys for
+ordered comparison. Every key column must exist in both datasets; otherwise
+an error is raised naming the missing column(s) and the dataset(s) concerned.
+See the "Argument vs YAML precedence" section.}
 
 \item{path}{Path to YAML file containing validation rules. If NULL, default rules are
 generated automatically based on the reference dataset structure.}
@@ -40,9 +43,12 @@ generated automatically based on the reference dataset structure.}
 
 \item{ref_suffix}{Suffix for reference columns in comparison dataframe (default: "__reference")}
 
-\item{label}{Descriptive label for the validation report}
+\item{label}{Descriptive label for the validation report. See the
+"Argument vs YAML precedence" section.}
 
-\item{error_msg_no_key}{Error message when datasets have different row counts without keys}
+\item{error_msg_no_key}{Text of the error raised when a positional (key-less)
+comparison receives datasets with different row counts; the actual row
+counts of both datasets are appended to this text.}
 
 \item{lang}{Language code for pointblank reports. Defaults to the
 \code{datadiff.lang} option if set, otherwise \code{"fr"}. Override globally
@@ -76,16 +82,25 @@ when Arrow datasets are used (default: \code{"8GB"}). Controls how much RAM Duck
 may use before spilling intermediate results to \code{tempdir()}. The default leaves
 headroom for R, Arrow, and the OS alongside DuckDB. Raise it (e.g. \code{"16GB"})
 on machines with ample free RAM to reduce disk I/O; lower it (e.g. \code{"4GB"})
-when memory is very constrained. Has no effect when both inputs are plain
-\code{data.frame}s or \code{tbl_lazy} objects.}
+when memory is very constrained. The value is always validated as a size
+literal (an invalid one is an error on every path), but it only takes
+effect when Arrow datasets are used: plain \code{data.frame}s or \code{tbl_lazy}
+inputs ignore a valid value.}
 }
 \value{
-A list containing:
-\item{agent}{Configured pointblank agent with validation results}
-\item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
+A list of class \code{datadiff_result} containing:
+\item{all_passed}{Logical; \code{TRUE} when every check passed. The
+first element of the returned list and the single verdict consumers
+should read.}
+\item{agent}{The configured pointblank agent as built (NOT interrogated:
+the verdict lives in \code{response}, which is the interrogated one)}
+\item{response}{Interrogated pointblank agent (class \code{datadiff_report}):
 usable by \code{pointblank::all_passed()} / \code{get_data_extracts()};
 printing it lazily renders a full pointblank-style report from
-\code{coverage} (built on demand, memoized).}
+\code{coverage} (built on demand, memoized). Reading it under its
+historical name \code{reponse} still works but is deprecated and
+emits a warning (once per session); the alias will be removed in a
+future release.}
 \item{missing_in_candidate}{Columns missing in candidate data}
 \item{extra_in_candidate}{Extra columns in candidate data}
 \item{applied_rules}{Final column-specific rules applied}
@@ -101,6 +116,31 @@ Main function for comparing reference and candidate datasets using configurable
 validation rules defined in a YAML file. Supports exact matching, tolerance-based
 comparisons, text normalization, and row count validation.
 }
+\section{Argument vs YAML precedence}{
+
+Some settings can come both from an explicit argument and from the YAML
+rules file. The resolution is always: explicit argument first, then the
+YAML \code{defaults} section, then the built-in default.\tabular{llll}{
+   Setting \tab Explicit argument \tab YAML \code{defaults} field \tab Built-in default \cr
+   join key \tab \code{key} \tab \code{keys} (legacy alias: \code{key}) \tab none (positional) \cr
+   report label \tab \code{label} \tab \code{label} \tab "Comparing candidate vs reference" \cr
+}
+
+
+When the YAML contains both \code{keys} and the legacy singular \code{key} field,
+\code{keys} (the canonical field written by \code{\link[=write_rules_template]{write_rules_template()}}) wins.
+
+The \code{key} argument must be a character vector (a non-character value is an
+error), while YAML-sourced key values are coerced to character (YAML being
+stringly typed, \verb{keys: [2024]} designates the column named "2024").
+
+Note for \code{path = NULL}: the auto-generated rules template itself carries a
+label (\code{"Comparison with default rules"}, or the explicit \code{label} argument),
+so that is the label effectively used without a YAML file; the built-in
+default above only applies when a YAML file is supplied with an empty or
+missing \code{defaults$label}.
+}
+
 \examples{
 # Create test data
 ref <- data.frame(id = 1:3, value = c(1.0, 2.0, 3.0))
@@ -116,5 +156,5 @@ result <- compare_datasets_from_yaml(ref, cand, key = "id")
 tmp <- tempfile(fileext = ".yaml")
 write_rules_template(ref, key = "id", path = tmp)
 result <- compare_datasets_from_yaml(ref, cand, key = "id", path = tmp)
-result$reponse
+result$response
 }

@@ -10,29 +10,57 @@
 # tables keep the SQL-native count()/group_by (cheap inside the database).
 
 format_key_examples <- function(uniq_keys, key) {
-  rows <- unname(apply(uniq_keys, 1, function(r) {
+  n_groups <- nrow(uniq_keys)
+  shown <- utils::head(uniq_keys, 3L)
+  rows <- unname(apply(shown, 1, function(r) {
     paste(key, "=", r, collapse = ", ")
   }))
-  if (length(rows) <= 3) {
-    rows
-  } else {
-    c(rows[1:3], "...")
+  if (n_groups > 3L) {
+    rows <- c(rows, "...")
   }
+  rows
 }
 
+#' @importFrom rlang .data
+#' @noRd
 find_duplicate_keys <- function(data, key) {
   if (is_non_local(data)) {
-    dups <- data %>%
-      dplyr::count(dplyr::across(dplyr::all_of(key))) %>%
-      dplyr::filter(n > 1L) %>%
+    # Reserved count name: count()'s default "n" collides with a user column
+    # named "n" (count() then stores its result in "nn", and a key named "n"
+    # would be filtered on its own values instead of the count). The reserved
+    # name is extended until it differs from every key column, because
+    # count(name = <grouping column>) silently REPLACES that grouping column
+    # with the count.
+    count_col <- "..datadiff_n"
+    while (count_col %in% key) {
+      count_col <- paste0(count_col, "_")
+    }
+    duplicated_groups <- data %>%
+      dplyr::count(dplyr::across(dplyr::all_of(key)), name = count_col) %>%
+      dplyr::filter(.data[[count_col]] > 1L)
+    # Aggregate in SQL: only 2 scalars plus at most 3 example groups cross the
+    # wire, instead of every duplicated group (potentially millions).
+    agg <- duplicated_groups %>%
+      dplyr::summarise(
+        ..datadiff_dup_keys = dplyr::n(),
+        ..datadiff_dup_rows = sum(.data[[count_col]], na.rm = TRUE)
+      ) %>%
       dplyr::collect()
-    if (nrow(dups) == 0L) {
+    n_dup_keys <- as.numeric(agg$..datadiff_dup_keys)
+    if (n_dup_keys == 0) {
       return(NULL)
     }
+    example_groups <- duplicated_groups %>%
+      utils::head(3L) %>%
+      dplyr::collect()
+    examples <- format_key_examples(example_groups[, key, drop = FALSE], key)
+    if (n_dup_keys > 3) {
+      examples <- c(examples, "...")
+    }
     return(list(
-      n_dup_keys = nrow(dups),
-      n_dup_rows = sum(dups$n),
-      examples   = format_key_examples(dups[, key, drop = FALSE], key)
+      n_dup_keys = n_dup_keys,
+      n_dup_rows = as.numeric(agg$..datadiff_dup_rows),
+      examples   = examples
     ))
   }
 
