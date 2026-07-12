@@ -549,8 +549,6 @@ compare_datasets_from_yaml <- function(data_reference,
     }
   }
 
-  if (is.null(key)) {message("key is missing")}
-
   # Check for duplicate keys (only if key exists in both datasets)
   if (!is.null(key) && all(key %in% get_col_names(data_reference)) && all(key %in% get_col_names(data_candidate))) {
     # Detect duplicate key values. Local data.frames use a fast

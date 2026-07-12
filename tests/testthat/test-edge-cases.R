@@ -792,8 +792,8 @@ test_that("no crash and no spurious warning when all column types match", {
 })
 
 # Helper for the positional-path tests: run expr, return the error message
-# and every message emitted (the "key is missing" design note is expected;
-# the error text must never leak on the message stream).
+# and every message emitted (the error text must never leak on the message
+# stream).
 catch_error_and_messages <- function(expr) {
   msgs <- character(0)
   err <- tryCatch(
@@ -810,6 +810,15 @@ catch_error_and_messages <- function(expr) {
   )
   list(error = err, messages = msgs)
 }
+
+test_that("positional comparison emits no debug message about the missing key", {
+  ref  <- data.frame(value = c(1.0, 2.0, 3.0))
+  cand <- ref
+  expect_no_message(
+    compare_datasets_from_yaml(ref, cand),
+    message = "key is missing"
+  )
+})
 
 test_that("positional comparison with unequal row counts raises a clear error", {
   ref  <- data.frame(value = 1:5)
