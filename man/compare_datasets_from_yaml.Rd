@@ -88,16 +88,19 @@ effect when Arrow datasets are used: plain \code{data.frame}s or \code{tbl_lazy}
 inputs ignore a valid value.}
 }
 \value{
-A list containing:
+A list of class \code{datadiff_result} containing:
 \item{all_passed}{Logical; \code{TRUE} when every check passed. The
 first element of the returned list and the single verdict consumers
 should read.}
 \item{agent}{The configured pointblank agent as built (NOT interrogated:
-the verdict lives in \code{reponse}, which is the interrogated one)}
-\item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
+the verdict lives in \code{response}, which is the interrogated one)}
+\item{response}{Interrogated pointblank agent (class \code{datadiff_report}):
 usable by \code{pointblank::all_passed()} / \code{get_data_extracts()};
 printing it lazily renders a full pointblank-style report from
-\code{coverage} (built on demand, memoized).}
+\code{coverage} (built on demand, memoized). Reading it under its
+historical name \code{reponse} still works but is deprecated and
+emits a warning (once per session); the alias will be removed in a
+future release.}
 \item{missing_in_candidate}{Columns missing in candidate data}
 \item{extra_in_candidate}{Extra columns in candidate data}
 \item{applied_rules}{Final column-specific rules applied}
@@ -153,5 +156,5 @@ result <- compare_datasets_from_yaml(ref, cand, key = "id")
 tmp <- tempfile(fileext = ".yaml")
 write_rules_template(ref, key = "id", path = tmp)
 result <- compare_datasets_from_yaml(ref, cand, key = "id", path = tmp)
-result$reponse
+result$response
 }

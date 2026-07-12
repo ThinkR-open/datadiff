@@ -1,9 +1,9 @@
 # Lazy pointblank-style report.
 #
-# The fast path keeps res$reponse a real interrogated agent (minimal when green,
+# The fast path keeps res$response a real interrogated agent (minimal when green,
 # targeted when red) so pointblank::all_passed() and get_data_extracts() keep
 # working. We prefix the class "datadiff_report" and attach the coverage so that
-# PRINTING res$reponse builds, on demand, a full pointblank agent report (one
+# PRINTING res$response builds, on demand, a full pointblank agent report (one
 # step per column) from the pre-computed coverage - without re-running the slow
 # per-column interrogation. The build cost is paid only when the report is
 # actually displayed, and memoized so repeated prints are instant.
@@ -180,17 +180,17 @@ mark_agent_interrogated <- function(agent) {
 # Attach the lazy-report capability to a real interrogated agent: prefix the
 # class (print dispatches to print.datadiff_report) and stash what is needed to
 # render the full report, plus a (reference-semantics) environment for caching.
-as_datadiff_report <- function(reponse, coverage, label, lang, locale,
+as_datadiff_report <- function(response, coverage, label, lang, locale,
                                warn_at = datadiff_default_warn_at, stop_at = datadiff_default_stop_at) {
-  attr(reponse, "datadiff_coverage") <- coverage
-  attr(reponse, "datadiff_label")    <- label
-  attr(reponse, "datadiff_lang")     <- lang
-  attr(reponse, "datadiff_locale")   <- locale
-  attr(reponse, "datadiff_warn_at")  <- warn_at
-  attr(reponse, "datadiff_stop_at")  <- stop_at
-  attr(reponse, "datadiff_render")   <- new.env(parent = emptyenv())
-  class(reponse) <- c("datadiff_report", class(reponse))
-  reponse
+  attr(response, "datadiff_coverage") <- coverage
+  attr(response, "datadiff_label")    <- label
+  attr(response, "datadiff_lang")     <- lang
+  attr(response, "datadiff_locale")   <- locale
+  attr(response, "datadiff_warn_at")  <- warn_at
+  attr(response, "datadiff_stop_at")  <- stop_at
+  attr(response, "datadiff_render")   <- new.env(parent = emptyenv())
+  class(response) <- c("datadiff_report", class(response))
+  response
 }
 
 # Build (once) and memoize the pointblank agent report for a datadiff_report.
@@ -221,7 +221,7 @@ datadiff_render_report <- function(x) {
 #' pointblank-style report (HTML in interactive sessions / viewer). The report
 #' is built on first print and memoized.
 #'
-#' @param x A `datadiff_report` (the `reponse` element of a comparison result).
+#' @param x A `datadiff_report` (the `response` element of a comparison result).
 #' @param ... Unused.
 #' @return `x`, invisibly.
 #' @exportS3Method print datadiff_report
@@ -260,33 +260,37 @@ datadiff_report_html <- function(res, file = NULL, extracts_dir = NULL) {
   if (is.null(coverage)) {
     stop("`res` has no `coverage`; was it produced by compare_datasets_from_yaml()?")
   }
-  reponse <- res$reponse
-  report <- if (inherits(reponse, "datadiff_report")) {
+  response <- res[["response"]]
+  if (is.null(response)) {
+    # A result saved by a version where the field was still named `reponse`
+    response <- res[["reponse"]]
+  }
+  report <- if (inherits(response, "datadiff_report")) {
     # Share the print() memoization: read the cached report when a print
     # already built it, and feed the cache otherwise
-    datadiff_render_report(reponse)
+    datadiff_render_report(response)
   } else {
     # No lazy-report wrapper (hand-assembled res): one-shot synthetic build
     pointblank::get_agent_report(build_report_agent(
       coverage = coverage,
       label = "datadiff report",
-      real_agent = reponse
+      real_agent = response
     ))
   }
   if (!is.null(file)) {
     pointblank::export_report(report, filename = file, quiet = TRUE)
   }
   if (!is.null(extracts_dir)) {
-    write_extract_csvs(reponse, extracts_dir = extracts_dir)
+    write_extract_csvs(response, extracts_dir = extracts_dir)
   }
   invisible(report)
 }
 
 # Write each failing-step extract of an interrogated agent as a CSV file.
 # Returns the written paths, invisibly.
-write_extract_csvs <- function(reponse, extracts_dir) {
+write_extract_csvs <- function(response, extracts_dir) {
   extracts <- tryCatch(
-    pointblank::get_data_extracts(reponse),
+    pointblank::get_data_extracts(response),
     error = function(e) {
       warning(sprintf(
         "extracts_dir: could not read the data extracts (%s); no CSV written.",
@@ -301,7 +305,7 @@ write_extract_csvs <- function(reponse, extracts_dir) {
   if (!dir.exists(extracts_dir)) {
     dir.create(extracts_dir, recursive = TRUE)
   }
-  vs <- reponse$validation_set
+  vs <- response$validation_set
   paths <- vapply(X = names(extracts), FUN = function(nm) {
     i <- as.integer(nm)
     # Look the step up by its id (vs$i), not by row position: contiguity of

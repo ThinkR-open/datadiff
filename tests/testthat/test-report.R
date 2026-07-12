@@ -1,8 +1,8 @@
 # TDD spec for the lazy pointblank-style HTML report.
 #
-# The fast path keeps res$reponse a real interrogated agent (so all_passed() and
+# The fast path keeps res$response a real interrogated agent (so all_passed() and
 # get_data_extracts() keep working), but prefixes class "datadiff_report" and
-# attaches the coverage so that PRINTING res$reponse lazily builds a full
+# attaches the coverage so that PRINTING res$response lazily builds a full
 # pointblank report (one step per column) on demand - the cost is paid only when
 # the report is displayed, never on the compute path.
 
@@ -86,7 +86,7 @@ test_that("failing report merges the real extract and lists every column", {
   expect_false(res$all_passed)
 
   ag <- build_report_agent(res$coverage, label = "L", lang = "en",
-                           locale = "en_US", real_agent = res$reponse)
+                           locale = "en_US", real_agent = res$response)
   vs <- ag$validation_set
 
   # every coverage column is represented (full "X tests" overview)
@@ -116,7 +116,7 @@ test_that("col_exists rows stay PASS even when the column's value check fails", 
   res <- run(ref, cand)
   expect_false(res$all_passed)
   ag <- build_report_agent(res$coverage, label = "L", lang = "en",
-                           locale = "en_US", real_agent = res$reponse)
+                           locale = "en_US", real_agent = res$response)
   vs <- ag$validation_set
   is_a <- vapply(vs$column, identical, logical(1), "a")
 
@@ -142,7 +142,7 @@ test_that("report counts match coverage for structural checks (augment path)", {
   expect_false(res$all_passed)
 
   ag <- build_report_agent(res$coverage, label = "L", lang = "en",
-                           locale = "en_US", real_agent = res$reponse)
+                           locale = "en_US", real_agent = res$response)
   vs <- ag$validation_set
 
   # the missing_column row must report coverage's counts (1/1), not nrow
@@ -185,7 +185,7 @@ test_that("report presents col_exists AND col_vals_equal as distinct checks", {
   res <- run(mk_ref(), mk_ref())  # all green
   expect_true(res$all_passed)
   ag <- build_report_agent(res$coverage, label = "L", lang = "en",
-                           locale = "en_US", real_agent = res$reponse)
+                           locale = "en_US", real_agent = res$response)
   types <- ag$validation_set$assertion_type
   # both kinds of check must appear, not collapsed into one
   expect_true("col_exists" %in% types)
@@ -326,47 +326,47 @@ test_that("end-to-end: all-pass comparison HTML report shows row counts (both pa
   expect_false(has_banner(res_lazy))
 })
 
-# --- API compatibility: res$reponse stays a usable agent --------------------
+# --- API compatibility: res$response stays a usable agent --------------------
 
-test_that("green res$reponse is a datadiff_report that is still a usable agent", {
+test_that("green res$response is a datadiff_report that is still a usable agent", {
   res <- run(mk_ref(), mk_ref())
   expect_true(res$all_passed)
-  expect_identical(class(res$reponse)[1], "datadiff_report")
-  expect_true(inherits(res$reponse, "ptblank_agent"))
-  expect_true(inherits(res$reponse, "has_intel"))
-  expect_true(pointblank::all_passed(res$reponse))
-  expect_length(pointblank::get_data_extracts(res$reponse), 0L)
+  expect_identical(class(res$response)[1], "datadiff_report")
+  expect_true(inherits(res$response, "ptblank_agent"))
+  expect_true(inherits(res$response, "has_intel"))
+  expect_true(pointblank::all_passed(res$response))
+  expect_length(pointblank::get_data_extracts(res$response), 0L)
 })
 
-test_that("red res$reponse keeps failing cells extractable", {
+test_that("red res$response keeps failing cells extractable", {
   ref <- mk_ref(); cand <- ref
   cand$a[2] <- 99
   res <- run(ref, cand)
   expect_false(res$all_passed)
-  expect_identical(class(res$reponse)[1], "datadiff_report")
-  expect_true(inherits(res$reponse, "ptblank_agent"))
+  expect_identical(class(res$response)[1], "datadiff_report")
+  expect_true(inherits(res$response, "ptblank_agent"))
   expect_equal(failing_cells(res, key = KEYR), "a@2|1")
 })
 
 # --- print renders, in green and red ----------------------------------------
 
-test_that("printing res$reponse renders without error (green and red)", {
+test_that("printing res$response renders without error (green and red)", {
   res_g <- run(mk_ref(), mk_ref())
-  expect_output(print(res_g$reponse))
+  expect_output(print(res_g$response))
 
   ref <- mk_ref(); cand <- ref; cand$txt[3] <- "Z"
   res_r <- run(ref, cand)
-  expect_output(print(res_r$reponse))
+  expect_output(print(res_r$response))
 })
 
 # --- memoization: second render reuses the cache ----------------------------
 
 test_that("the rendered report is memoized after first print", {
   res <- run(mk_ref(), mk_ref())
-  cache <- attr(res$reponse, "datadiff_render")
+  cache <- attr(res$response, "datadiff_render")
   expect_true(is.environment(cache))
   expect_null(cache$report)
-  invisible(capture.output(print(res$reponse)))
+  invisible(capture.output(print(res$response)))
   expect_false(is.null(cache$report)) # populated by the first print
 })
 
@@ -399,6 +399,6 @@ test_that("lazy comparison also yields a printable datadiff_report", {
     dplyr::tbl(con, "ref"), dplyr::tbl(con, "cand"), key = KEYR, path = tmp
   ))
   expect_true(res$all_passed)
-  expect_identical(class(res$reponse)[1], "datadiff_report")
-  expect_output(print(res$reponse))
+  expect_identical(class(res$response)[1], "datadiff_report")
+  expect_output(print(res$response))
 })

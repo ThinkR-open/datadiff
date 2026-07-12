@@ -21,7 +21,7 @@ test_that("build_report_agent returns an agent for empty coverage (no real agent
 })
 
 test_that("datadiff_report_html errors when the result has no coverage", {
-  expect_error(datadiff_report_html(list(reponse = NULL)), "coverage")
+  expect_error(datadiff_report_html(list(response = NULL)), "coverage")
 })
 
 test_that("datadiff_render_report tolerates a missing cache environment", {
@@ -33,7 +33,7 @@ test_that("datadiff_render_report tolerates a missing cache environment", {
   res <- suppressMessages(
     compare_datasets_from_yaml(ref, ref, key = c("id", ".row"), path = tmp)
   )
-  x <- res$reponse
+  x <- res$response
   attr(x, "datadiff_render") <- NULL # force the fallback branch
   rep <- datadiff_render_report(x)
   expect_s3_class(rep, "gt_tbl")

@@ -53,14 +53,14 @@ test_that("column names are sanitized in extract file names", {
   expect_false(grepl("[ ()/]", csvs))
 })
 
-test_that("an unreadable reponse warns explicitly and writes nothing", {
+test_that("an unreadable response warns explicitly and writes nothing", {
   res_broken <- list(
     coverage = structure(
       data.frame(column = "x", check = "tolerance", n = 1L, n_failed = 1L,
                  status = "FAIL", stringsAsFactors = FALSE),
       class = c("datadiff_coverage", "data.frame")
     ),
-    reponse = list()
+    response = list()
   )
   out_dir <- tempfile(pattern = "datadiff_extracts_")
   on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)

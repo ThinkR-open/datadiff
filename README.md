@@ -58,7 +58,7 @@ result$summary      # aggregate counts (n_checks, n_pass, n_fail, ...)
 
 # Printing the response lazily renders the full pointblank-style report
 # (built on demand, only when displayed):
-print(result$reponse)
+print(result$response)
 
 # ...or export that report to a standalone HTML file:
 datadiff_report_html(result, file = "report.html")
@@ -81,7 +81,7 @@ datadiff_report_html(result, file = "report.html")
   per-column pointblank agent, so validating hundreds/thousands of
   columns stays quick
 - **Faithful coverage**: `result$coverage` always lists every check
-  performed (even when everything passes), and `result$reponse` renders
+  performed (even when everything passes), and `result$response` renders
   the full pointblank HTML report lazily, only when printed
 
 ## Dependencies

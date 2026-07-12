@@ -24,7 +24,7 @@ test_that("a green lazy comparison does not collect the boolean table", {
   expect_identical(as.integer(cov$n[cov$column == "a" & cov$check == "tolerance"]), as.integer(n))
   expect_identical(as.integer(sum(cov$n_failed)), 0L)
   # The agent is the constant-size pass placeholder, not N collected rows
-  expect_lte(nrow(res$reponse$tbl), 1L)
+  expect_lte(nrow(res$response$tbl), 1L)
 })
 
 test_that("a red lazy comparison collects only the failing boolean columns", {
@@ -49,7 +49,7 @@ test_that("a red lazy comparison collects only the failing boolean columns", {
   # Only the failing tolerance column (plus the row-count flag consumed by
   # its validation step) reaches the local agent: b__ok and s__eq stay in
   # the database
-  agent_cols <- names(res$reponse$tbl)
+  agent_cols <- names(res$response$tbl)
   expect_true("a__ok" %in% agent_cols)
   expect_false("b__ok" %in% agent_cols)
   expect_false("s__eq" %in% agent_cols)
@@ -62,7 +62,7 @@ test_that("a red lazy comparison collects only the failing boolean columns", {
   expect_identical(as.integer(cov$n_failed[cov$column == "s" & cov$check == "equality"]), 0L)
 
   # And the extracts still surface the failing rows
-  ex <- pointblank::get_data_extracts(res$reponse)
+  ex <- pointblank::get_data_extracts(res$response)
   expect_gte(length(ex), 1L)
 })
 
@@ -109,7 +109,7 @@ test_that("structural-only lazy failure keeps a failing verdict (no value checks
   # The missing column is the only failure: the agent verdict must agree
   # with the coverage, not pass on a 0-unit dummy step
   expect_false(res$all_passed)
-  expect_false(pointblank::all_passed(res$reponse))
+  expect_false(pointblank::all_passed(res$response))
   expect_identical(res$missing_in_candidate, "extra_ref")
 })
 

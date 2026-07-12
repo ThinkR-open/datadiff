@@ -26,7 +26,7 @@ test_that("extract_failed defaults to TRUE", {
 
   expect_false(result$all_passed)
   # With extract_failed = TRUE (default), extracts should contain data
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
   expect_true(length(extracts) > 0 || is.list(extracts))
 })
 
@@ -40,7 +40,7 @@ test_that("extract_failed = FALSE prevents row extraction", {
 
   expect_false(result$all_passed)
   # With extract_failed = FALSE, no rows should be extracted
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
   # Extracts must be empty or contain only empty data frames: computing the
   # total over an empty list gives 0, so the assertion never silently skips
   total_rows <- sum(vapply(extracts, nrow, integer(1)))
@@ -82,7 +82,7 @@ test_that("get_first_n limits extracted rows", {
   )
 
   expect_false(result$all_passed)
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
 
   # Each extract should have at most 5 rows
   # Assert the precondition first: a failing comparison with extraction
@@ -103,7 +103,7 @@ test_that("get_first_n = 1 extracts only first failure", {
   )
 
   expect_false(result$all_passed)
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
 
   # Assert the precondition first: a failing comparison with extraction
   # enabled must produce at least one extract (a silent empty list would
@@ -157,7 +157,7 @@ test_that("sample_n limits extracted rows via random sampling", {
   )
 
   expect_false(result$all_passed)
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
 
   # Assert the precondition first: a failing comparison with extraction
   # enabled must produce at least one extract (a silent empty list would
@@ -177,7 +177,7 @@ test_that("sample_n = 1 extracts only one random failure", {
   )
 
   expect_false(result$all_passed)
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
 
   # Assert the precondition first: a failing comparison with extraction
   # enabled must produce at least one extract (a silent empty list would
@@ -276,7 +276,7 @@ test_that("sample_limit caps sample_frac results", {
   )
 
   expect_false(result$all_passed)
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
 
   # Assert the precondition first: a failing comparison with extraction
   # enabled must produce at least one extract (a silent empty list would
@@ -297,7 +297,7 @@ test_that("sample_limit = 1 limits to single row", {
   )
 
   expect_false(result$all_passed)
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
 
   # Assert the precondition first: a failing comparison with extraction
   # enabled must produce at least one extract (a silent empty list would
@@ -335,7 +335,7 @@ test_that("extract_failed = FALSE overrides other extraction params", {
   )
 
   expect_false(result$all_passed)
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
 
   # With extract_failed = FALSE, should have no extracted rows
   total_rows <- sum(vapply(extracts, nrow, integer(1)))
@@ -433,7 +433,7 @@ test_that("lightweight mode (extract_failed = FALSE) produces smaller output", {
   expect_equal(result_full$all_passed, result_light$all_passed)
 
   # Light version should have no extracts
-  extracts_light <- pointblank::get_data_extracts(result_light$reponse)
+  extracts_light <- pointblank::get_data_extracts(result_light$response)
   if (length(extracts_light) > 0) {
     total_rows_light <- sum(vapply(extracts_light, nrow, integer(1)))
     expect_equal(total_rows_light, 0)
@@ -454,8 +454,8 @@ test_that("get_first_n reduces extract size compared to no limit", {
     get_first_n = 5
   )
 
-  extracts_unlimited <- pointblank::get_data_extracts(result_unlimited$reponse)
-  extracts_limited <- pointblank::get_data_extracts(result_limited$reponse)
+  extracts_unlimited <- pointblank::get_data_extracts(result_unlimited$response)
+  extracts_limited <- pointblank::get_data_extracts(result_limited$response)
 
   # Count total rows in extracts
   count_rows <- function(extracts) {

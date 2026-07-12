@@ -343,16 +343,19 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #'   literal (an invalid one is an error on every path), but it only takes
 #'   effect when Arrow datasets are used: plain `data.frame`s or `tbl_lazy`
 #'   inputs ignore a valid value.
-#' @return A list containing:
+#' @return A list of class \code{datadiff_result} containing:
 #'   \item{all_passed}{Logical; \code{TRUE} when every check passed. The
 #'     first element of the returned list and the single verdict consumers
 #'     should read.}
 #'   \item{agent}{The configured pointblank agent as built (NOT interrogated:
-#'     the verdict lives in \code{reponse}, which is the interrogated one)}
-#'   \item{reponse}{Interrogated pointblank agent (class \code{datadiff_report}):
+#'     the verdict lives in \code{response}, which is the interrogated one)}
+#'   \item{response}{Interrogated pointblank agent (class \code{datadiff_report}):
 #'     usable by \code{pointblank::all_passed()} / \code{get_data_extracts()};
 #'     printing it lazily renders a full pointblank-style report from
-#'     \code{coverage} (built on demand, memoized).}
+#'     \code{coverage} (built on demand, memoized). Reading it under its
+#'     historical name \code{reponse} still works but is deprecated and
+#'     emits a warning (once per session); the alias will be removed in a
+#'     future release.}
 #'   \item{missing_in_candidate}{Columns missing in candidate data}
 #'   \item{extra_in_candidate}{Extra columns in candidate data}
 #'   \item{applied_rules}{Final column-specific rules applied}
@@ -381,7 +384,7 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' tmp <- tempfile(fileext = ".yaml")
 #' write_rules_template(ref, key = "id", path = tmp)
 #' result <- compare_datasets_from_yaml(ref, cand, key = "id", path = tmp)
-#' result$reponse
+#' result$response
 compare_datasets_from_yaml <- function(data_reference,
                                        data_candidate,
                                        key = NULL,
@@ -934,7 +937,7 @@ compare_datasets_from_yaml <- function(data_reference,
     )
   }
 
-  reponse <- interrogate(
+  response <- interrogate(
     agent,
     extract_failed = extract_failed,
     get_first_n = get_first_n,
@@ -943,24 +946,24 @@ compare_datasets_from_yaml <- function(data_reference,
     sample_limit = sample_limit
   )
 
-  all_passed <- pointblank::all_passed(reponse)
+  all_passed <- pointblank::all_passed(response)
 
-  # Make reponse render the full pointblank report lazily (on print) from the
+  # Make response render the full pointblank report lazily (on print) from the
   # coverage, while remaining a real interrogated agent for all_passed() and
   # get_data_extracts().
-  reponse <- as_datadiff_report(
-    reponse, coverage = coverage, label = label, lang = lang, locale = locale,
+  response <- as_datadiff_report(
+    response, coverage = coverage, label = label, lang = lang, locale = locale,
     warn_at = warn_at, stop_at = stop_at
   )
 
-  list(
+  new_datadiff_result(list(
     all_passed = all_passed,
     agent = agent,
-    reponse = reponse,
+    response = response,
     missing_in_candidate = missing_in_candidate,
     extra_in_candidate = extra_in_candidate,
     applied_rules = col_rules,
     coverage = coverage,
     summary = summarize_coverage(coverage)
-  )
+  ))
 }

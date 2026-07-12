@@ -22,7 +22,7 @@ test_that("failing extracts expose the measured deviation and threshold", {
 
   expect_false(result$all_passed)
 
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
   expect_true(length(extracts) >= 1)
   ex <- extracts[[1]]
 
@@ -53,7 +53,7 @@ test_that("diagnostics are computed for failing tolerance columns only", {
 
   expect_false(result$all_passed)
 
-  extracts <- pointblank::get_data_extracts(result$reponse)
+  extracts <- pointblank::get_data_extracts(result$response)
   ex <- extracts[[1]]
 
   expect_true(all(c("bad__absdiff", "bad__thresh") %in% names(ex)))
@@ -72,7 +72,7 @@ test_that("all-pass fast path materialises no diagnostic columns", {
 
   expect_true(result$all_passed)
   expect_false(any(grepl("__absdiff$|__thresh$", colnames(result$agent$tbl))))
-  expect_length(pointblank::get_data_extracts(result$reponse), 0L)
+  expect_length(pointblank::get_data_extracts(result$response), 0L)
 })
 
 test_that("add_diff_columns appends only __absdiff/__thresh, matching the kernel", {

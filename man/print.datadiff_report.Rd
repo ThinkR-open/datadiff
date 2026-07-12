@@ -7,7 +7,7 @@
 \method{print}{datadiff_report}(x, ...)
 }
 \arguments{
-\item{x}{A \code{datadiff_report} (the \code{reponse} element of a comparison result).}
+\item{x}{A \code{datadiff_report} (the \code{response} element of a comparison result).}
 
 \item{...}{Unused.}
 }

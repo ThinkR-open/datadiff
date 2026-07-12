@@ -9,8 +9,9 @@ leur issue de rattachement.
 La fonction centrale `compare_datasets_from_yaml()` a grossi par accretion :
 17 parametres a plat, un nom qui ne reflete plus l'usage (le YAML est
 optionnel depuis 0.1.5), un retour a 8 champs partiellement redondants, et un
-melange de langues (arguments anglais, champ `$reponse` en francais, rapport
-par defaut en francais, messages en anglais).
+melange de langues (arguments anglais, champ historique `$reponse` en
+francais, renomme `$response` en 0.6.0 avec alias deprecie, rapport par
+defaut en francais, messages en anglais).
 
 ## Proposition
 
@@ -51,9 +52,11 @@ compare_datasets(
 ### 3. Retour : classe `datadiff_result`
 
 Etat actuel : `all_passed` existe en 3 exemplaires (`$all_passed`,
-`$summary$all_passed`, `pointblank::all_passed($reponse)`) ; `$agent` n'est
+`$summary$all_passed`, `pointblank::all_passed($response)`) ; `$agent` n'est
 pas interroge (et il est factice sur le fast-path all-pass) sans usage
-utilisateur identifie ; `$reponse` est du franglais.
+utilisateur identifie. Depuis 0.6.0, le champ s'appelle `$response` (la
+classe `datadiff_result` et la mecanique de depreciation `$`/`[[` proposees
+ici existent deja ; `$reponse` reste lisible avec warning).
 
 Cible :
 
@@ -61,12 +64,15 @@ Cible :
 res$passed      # le verdict, une seule fois
 res$coverage    # inchange
 res$summary     # inchange (sans all_passed duplique)
-res$report      # l'agent interroge (ex-$reponse), print() paresseux inchange
+res$report      # l'agent interroge (ex-$response), print() paresseux inchange
+                # NB : renommer response -> report imposerait une 2e migration
+                # aux utilisateurs ; a arbitrer sur l'issue #33
 res$applied_rules, res$missing_in_candidate, res$extra_in_candidate
 ```
 
-- `$reponse` et `$all_passed` restent presents une version avec un warning de
-  depreciation a l'acces (active binding ou methode `$.datadiff_result`).
+- `$response` (et l'alias historique `$reponse`) et `$all_passed` restent
+  presents une version avec un warning de depreciation a l'acces (la methode
+  `$.datadiff_result` de 0.6.0 fournit deja la mecanique).
 - `$agent` est retire du contrat documente (garde interne si necessaire).
 
 ### 4. warn_at / stop_at

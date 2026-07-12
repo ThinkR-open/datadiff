@@ -36,7 +36,7 @@ test_that("ignored and extra columns stay out of the joined comparison", {
 
   # The failing-row extract carries the key and the compared columns, not the
   # ignored column nor the candidate-only extra column
-  ex <- pointblank::get_data_extracts(res$reponse)
+  ex <- pointblank::get_data_extracts(res$response)
   ex1 <- as.data.frame(ex[[1]])
   expect_true("id" %in% names(ex1))
   expect_false("noise" %in% names(ex1))

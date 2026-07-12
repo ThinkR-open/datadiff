@@ -7,7 +7,7 @@ test_that("compare_datasets_from_yaml works without path (default rules)", {
   result <- compare_datasets_from_yaml(ref, cand)
 
   expect_true(result$all_passed)
-  expect_s3_class(result$reponse, "ptblank_agent")
+  expect_s3_class(result$response, "ptblank_agent")
 })
 
 test_that("compare_datasets_from_yaml with key but no path works", {
@@ -17,7 +17,7 @@ test_that("compare_datasets_from_yaml with key but no path works", {
   result <- compare_datasets_from_yaml(ref, cand, key = "id")
 
   expect_true(result$all_passed)
-  expect_s3_class(result$reponse, "ptblank_agent")
+  expect_s3_class(result$response, "ptblank_agent")
 })
 
 test_that("compare_datasets_from_yaml detects differences without path", {
@@ -204,7 +204,7 @@ test_that("custom label is used when path is NULL", {
   result <- compare_datasets_from_yaml(ref, cand, label = "Custom Test Label")
 
   # The label should be set in the agent
-  expect_s3_class(result$reponse, "ptblank_agent")
+  expect_s3_class(result$response, "ptblank_agent")
 })
 
 test_that("comparison without path handles missing columns", {
