@@ -634,6 +634,33 @@ compare_datasets_from_yaml <- function(data_reference,
     ), call. = FALSE)
   }
 
+  # A tolerance rule (abs / rel) on a column that is not numeric in the
+  # reference cannot be honoured: the data is never converted. Rather than
+  # silently comparing strings while applied_rules still shows abs / rel, the
+  # column gets a dedicated failing check and takes part in no other one.
+  # Type-mismatched columns are already reported as such and are left out.
+  tolerance_non_numeric_cols <- common_cols[vapply(common_cols, function(nm) {
+    cr <- col_rules[[nm]]
+    has_tol <- !is.null(cr[["abs"]]) || !is.null(cr[["rel"]])
+    has_tol && !(type_ref[[nm]] %in% numeric_types) && !(nm %in% type_mismatch_cols)
+  }, logical(1))]
+  if (length(tolerance_non_numeric_cols) > 0) {
+    details <- vapply(tolerance_non_numeric_cols, function(nm) {
+      sprintf("'%s' (%s)", nm, type_ref[[nm]])
+    }, character(1))
+    warning(sprintf(
+      paste0("Tolerance rule (abs/rel) on %d non-numeric column(s): %s. ",
+             "datadiff never converts data, so the rule cannot be applied: ",
+             "each will be reported as a failing 'tolerance_on_non_numeric' check."),
+      length(tolerance_non_numeric_cols),
+      paste(details, collapse = ", ")
+    ), call. = FALSE)
+    for (nm in tolerance_non_numeric_cols) {
+      col_rules[[nm]][["abs"]] <- NULL
+      col_rules[[nm]][["rel"]] <- NULL
+    }
+  }
+
   data_reference_p <- preprocess_dataframe(data_reference, col_rules, schema = schema_ref)
   data_candidate_p <- preprocess_dataframe(data_candidate, col_rules, schema = schema_cand)
 
@@ -715,7 +742,10 @@ compare_datasets_from_yaml <- function(data_reference,
   # types and crash the lazy path (e.g. casting a character candidate to the
   # numeric reference's type); they are reported as failing validation steps
   # instead.
-  eq_cols <- setdiff(setdiff(common_cols, type_mismatch_cols), tol_cols)
+  eq_cols <- setdiff(
+    setdiff(common_cols, c(type_mismatch_cols, tolerance_non_numeric_cols)),
+    tol_cols
+  )
 
   # Add the per-column within-tolerance (__ok) and, on the lazy path, equality
   # (__eq) booleans - the only columns that drive the verdict.
@@ -831,6 +861,7 @@ compare_datasets_from_yaml <- function(data_reference,
     tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
     missing_in_candidate = missing_in_candidate,
     type_mismatch_cols = type_mismatch_cols,
+    tolerance_non_numeric_cols = tolerance_non_numeric_cols,
     row_validation_info = row_validation_info, row_count_ok = row_count_ok,
     ref_suffix = ref_suffix, na_equal = na_equal,
     counts = if (is_lazy) lazy_counts else NULL
@@ -838,7 +869,8 @@ compare_datasets_from_yaml <- function(data_reference,
 
   # Fast all-pass short-circuit.
   # The verdict is fully determined by the coverage, whose rows already
-  # include the structural checks (missing_column, type_mismatch, row_count).
+  # include the structural checks (missing_column, type_mismatch,
+  # tolerance_on_non_numeric, row_count).
   # The row_count row only exists when check_count is TRUE; otherwise
   # row_count_ok is TRUE by construction (unconditional init above), so the
   # absent row is neutral.
@@ -931,6 +963,7 @@ compare_datasets_from_yaml <- function(data_reference,
       locale = locale,
       missing_in_candidate = missing_in_candidate,
       type_mismatch_cols = type_mismatch_cols,
+      tolerance_non_numeric_cols = tolerance_non_numeric_cols,
       add_col_exists_steps = FALSE
     )
   }

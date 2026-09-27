@@ -33,6 +33,11 @@
 #'   reference and candidate (e.g. numeric in reference, character in candidate).
 #'   A dedicated failing validation step labelled `type_mismatch: <column>` is
 #'   added for each such column.
+#' @param tolerance_non_numeric_cols Character vector of columns carrying a
+#'   tolerance rule (`abs` or `rel`) although they are not numeric in the
+#'   reference. datadiff never converts data, so the rule cannot be honoured: a
+#'   dedicated failing validation step labelled `tolerance_on_non_numeric:
+#'   <column>` is added for each, and the column takes part in no other check.
 #' @param add_col_exists_steps Logical indicating whether to add `col_exists` validation
 #'   steps for common columns (default: `TRUE`). Set to `FALSE` for the non-local (lazy
 #'   table) path where `cmp` only contains pre-computed boolean columns, not the original
@@ -61,7 +66,8 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
                                    na_equal, lang = "fr", locale = "fr_FR",
                                    missing_in_candidate = character(0),
                                    type_mismatch_cols = character(0),
-                                   add_col_exists_steps = TRUE) {
+                                   add_col_exists_steps = TRUE,
+                                   tolerance_non_numeric_cols = character(0)) {
   if (!is.null(cols_reference)) {
     warning(
       "The 'cols_reference' argument of setup_pointblank_agent() is deprecated and unused; it will be removed in a future release.",
@@ -84,6 +90,17 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
   # These will generate a dedicated failing validation step per column.
   for (col_nm in type_mismatch_cols) {
     dummy_col <- paste0(datadiff_prefix_type_mismatch, col_nm)
+    if (is_non_local(cmp)) {
+      cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
+    } else {
+      cmp[[dummy_col]] <- FALSE
+    }
+  }
+
+  # Same mechanism for tolerance rules that cannot be honoured on a
+  # non-numeric reference column.
+  for (col_nm in tolerance_non_numeric_cols) {
+    dummy_col <- paste0(datadiff_prefix_tolerance_non_numeric, col_nm)
     if (is_non_local(cmp)) {
       cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
     } else {
@@ -146,6 +163,17 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
         value = TRUE,
         na_pass = FALSE,
         label = paste("type_mismatch:", col_nm)
+      )
+  }
+
+  for (col_nm in tolerance_non_numeric_cols) {
+    dummy_col <- paste0(datadiff_prefix_tolerance_non_numeric, col_nm)
+    agent <- agent %>%
+      col_vals_equal(
+        columns = all_of(dummy_col),
+        value = TRUE,
+        na_pass = FALSE,
+        label = paste("tolerance_on_non_numeric:", col_nm)
       )
   }
 

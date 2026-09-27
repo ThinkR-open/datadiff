@@ -72,7 +72,10 @@ lazy_boolean_counts <- function(tbl_lazy, tol_cols, eq_cols) {
 #'   the local path, the raw + reference columns for equality recomputation).
 #'   Ignored when `counts` is supplied.
 #' @param tol_cols,eq_cols Character vectors of tolerance / equality columns.
-#' @param missing_in_candidate,type_mismatch_cols Structural failures.
+#' @param missing_in_candidate,type_mismatch_cols,tolerance_non_numeric_cols
+#'   Structural failures: columns absent from the candidate, columns whose type
+#'   differs between the two datasets, and columns carrying a tolerance rule
+#'   although they are not numeric in the reference.
 #' @param row_validation_info List with `check_count`.
 #' @param row_count_ok Logical row-count outcome.
 #' @param ref_suffix Suffix identifying reference columns.
@@ -87,7 +90,8 @@ lazy_boolean_counts <- function(tbl_lazy, tol_cols, eq_cols) {
 build_coverage <- function(tbl, tol_cols, eq_cols,
                            missing_in_candidate, type_mismatch_cols,
                            row_validation_info, row_count_ok,
-                           ref_suffix, na_equal, counts = NULL) {
+                           ref_suffix, na_equal, counts = NULL,
+                           tolerance_non_numeric_cols = character(0)) {
   columns  <- character(0)
   checks   <- character(0)
   ns       <- numeric(0)
@@ -123,6 +127,9 @@ build_coverage <- function(tbl, tol_cols, eq_cols,
   }
   for (col_nm in type_mismatch_cols) {
     add(col_nm, "type_mismatch", 1L, 1L)
+  }
+  for (col_nm in tolerance_non_numeric_cols) {
+    add(col_nm, "tolerance_on_non_numeric", 1L, 1L)
   }
   if (isTRUE(row_validation_info$check_count)) {
     add("<row_count>", "row_count", 1L, if (isTRUE(row_count_ok)) 0L else 1L)

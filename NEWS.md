@@ -1,3 +1,19 @@
+# datadiff (development version)
+
+## Bug fixes
+
+* A tolerance rule (`abs` / `rel`) declared on a column that is not numeric in
+  the reference was silently ignored: the column fell back to an exact string
+  comparison while `applied_rules` still listed `abs` and `rel`, so the report
+  suggested a comparison by value that never happened. datadiff never converts
+  data, so the rule cannot be honoured: such a column now gets a dedicated,
+  always failing check, `tolerance_on_non_numeric: <column>` (visible in the
+  agent and in `coverage`, like `type_mismatch`), a warning is raised when it
+  is detected, the column takes part in no other check, and `applied_rules`
+  no longer lists the rule that was not applied. `build_coverage()` and
+  `setup_pointblank_agent()` gain a `tolerance_non_numeric_cols` argument
+  (default empty, behaviour unchanged otherwise) (issue #60).
+
 # datadiff 0.6.0
 
 ## New features
