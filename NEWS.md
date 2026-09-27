@@ -2,17 +2,28 @@
 
 ## Bug fixes
 
-* A tolerance rule (`abs` / `rel`) declared on a column that is not numeric in
-  the reference was silently ignored: the column fell back to an exact string
+* A tolerance rule (`abs` / `rel`) on a column that is not numeric in the
+  reference was silently ignored: the column fell back to an exact string
   comparison while `applied_rules` still listed `abs` and `rel`, so the report
-  suggested a comparison by value that never happened. datadiff never converts
-  data, so the rule cannot be honoured: such a column now gets a dedicated,
-  always failing check, `tolerance_on_non_numeric: <column>` (visible in the
-  agent and in `coverage`, like `type_mismatch`), a warning is raised when it
-  is detected, the column takes part in no other check, and `applied_rules`
-  no longer lists the rule that was not applied. `build_coverage()` and
-  `setup_pointblank_agent()` gain a `tolerance_non_numeric_cols` argument
-  (default empty, behaviour unchanged otherwise) (issue #60).
+  suggested a comparison by value that never happened. {datadiff} never
+  converts data, so the rule cannot be honoured: such a column now gets a
+  dedicated, always failing check, `tolerance_on_non_numeric: <column>`,
+  visible in the agent and in `coverage` like `type_mismatch`; a warning is
+  raised when it is detected, the column takes part in no other check, and
+  `applied_rules` no longer lists the rule that was not applied. This holds
+  whatever the origin of the rule (`by_name`, or a `by_type` block such as
+  `by_type: character: abs: 0.1`, which now fails every character column) and
+  whatever the non-numeric type (`character`, `date`, `datetime`, `logical`).
+  `build_coverage()` and `setup_pointblank_agent()` gain a
+  `tolerance_non_numeric_cols` argument, default empty (issue #60).
+
+* A comparison whose candidate or reference has no row could not carry a
+  structural failure: on the local path adding the dummy column of a
+  `type_mismatch` step errored ("replacement has 1 row, data has 0"), and on
+  the lazy path with `check_count: true` the structural and row-count steps
+  interrogated 0 units and passed, so `all_passed` was `TRUE` while `coverage`
+  said `FAIL`. Both paths now seed one row for the agent when the table is
+  empty, and the verdict follows the coverage.
 
 # datadiff 0.6.0
 

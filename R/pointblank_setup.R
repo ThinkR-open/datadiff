@@ -35,9 +35,11 @@
 #'   added for each such column.
 #' @param tolerance_non_numeric_cols Character vector of columns carrying a
 #'   tolerance rule (`abs` or `rel`) although they are not numeric in the
-#'   reference. datadiff never converts data, so the rule cannot be honoured: a
-#'   dedicated failing validation step labelled `tolerance_on_non_numeric:
-#'   <column>` is added for each, and the column takes part in no other check.
+#'   reference. \{datadiff\} never converts data, so the rule cannot be
+#'   honoured: a dedicated failing validation step labelled
+#'   `tolerance_on_non_numeric: <column>` is added for each. The comparison
+#'   pipeline keeps such a column out of `common_cols` and `tol_cols`, and out
+#'   of `type_mismatch_cols`; this function does not enforce that exclusion.
 #' @param add_col_exists_steps Logical indicating whether to add `col_exists` validation
 #'   steps for common columns (default: `TRUE`). Set to `FALSE` for the non-local (lazy
 #'   table) path where `cmp` only contains pre-computed boolean columns, not the original
@@ -75,37 +77,18 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
     )
   }
 
-  # Add dummy columns for missing columns BEFORE creating the agent
-  # These columns are set to FALSE and we'll check they equal TRUE (will fail)
+  # Dummy FALSE columns, one per structural failure (missing column, type
+  # mismatch, tolerance rule on a non-numeric column): each carries a
+  # dedicated validation step that always fails. The step needs at least one
+  # unit to fail on; the comparison pipeline seeds a row when cmp is empty.
   for (col_nm in missing_in_candidate) {
-    dummy_col <- paste0(datadiff_prefix_missing_col, col_nm)
-    if (is_non_local(cmp)) {
-      cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
-    } else {
-      cmp[[dummy_col]] <- FALSE
-    }
+    cmp <- add_false_column(cmp, name = paste0(datadiff_prefix_missing_col, col_nm))
   }
-
-  # Add dummy FALSE columns for type-mismatched columns.
-  # These will generate a dedicated failing validation step per column.
   for (col_nm in type_mismatch_cols) {
-    dummy_col <- paste0(datadiff_prefix_type_mismatch, col_nm)
-    if (is_non_local(cmp)) {
-      cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
-    } else {
-      cmp[[dummy_col]] <- FALSE
-    }
+    cmp <- add_false_column(cmp, name = paste0(datadiff_prefix_type_mismatch, col_nm))
   }
-
-  # Same mechanism for tolerance rules that cannot be honoured on a
-  # non-numeric reference column.
   for (col_nm in tolerance_non_numeric_cols) {
-    dummy_col <- paste0(datadiff_prefix_tolerance_non_numeric, col_nm)
-    if (is_non_local(cmp)) {
-      cmp <- dplyr::mutate(cmp, !!dummy_col := FALSE)
-    } else {
-      cmp[[dummy_col]] <- FALSE
-    }
+    cmp <- add_false_column(cmp, name = paste0(datadiff_prefix_tolerance_non_numeric, col_nm))
   }
 
   # Derive the missing <col>__eq booleans BEFORE creating the agent, so every
@@ -204,4 +187,14 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
   }
 
   agent
+}
+
+# A FALSE column of the right length on a local table (a scalar assignment
+# errors on a 0-row data.frame), a mutate on a lazy one.
+add_false_column <- function(cmp, name) {
+  if (is_non_local(cmp)) {
+    return(dplyr::mutate(cmp, !!name := FALSE))
+  }
+  cmp[[name]] <- rep(FALSE, times = nrow(cmp))
+  cmp
 }

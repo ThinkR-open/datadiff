@@ -129,7 +129,7 @@ build_coverage <- function(tbl, tol_cols, eq_cols,
     add(col_nm, "type_mismatch", 1L, 1L)
   }
   for (col_nm in tolerance_non_numeric_cols) {
-    add(col_nm, "tolerance_on_non_numeric", 1L, 1L)
+    add(col_nm, check = "tolerance_on_non_numeric", n = 1L, nf = 1L)
   }
   if (isTRUE(row_validation_info$check_count)) {
     add("<row_count>", "row_count", 1L, if (isTRUE(row_count_ok)) 0L else 1L)

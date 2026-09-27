@@ -68,8 +68,11 @@ data columns.}
 
 \item{tolerance_non_numeric_cols}{Character vector of columns carrying a
 tolerance rule (\code{abs} or \code{rel}) although they are not numeric in the
-reference. datadiff never converts data, so the rule cannot be honoured: a
-dedicated failing validation step labelled \verb{tolerance_on_non_numeric: <column>} is added for each, and the column takes part in no other check.}
+reference. \{datadiff\} never converts data, so the rule cannot be
+honoured: a dedicated failing validation step labelled
+\verb{tolerance_on_non_numeric: <column>} is added for each. The comparison
+pipeline keeps such a column out of \code{common_cols} and \code{tol_cols}, and out
+of \code{type_mismatch_cols}; this function does not enforce that exclusion.}
 }
 \value{
 Configured pointblank agent ready for interrogation
