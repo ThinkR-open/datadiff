@@ -30,7 +30,9 @@ compare_datasets_from_yaml(
 \item{data_candidate}{Candidate dataframe to validate against reference}
 
 \item{key}{Optional character vector of column names to use as join keys for
-ordered comparison. Every key column must exist in both datasets; otherwise
+ordered comparison; \code{NULL} (the default) defers to the YAML \code{keys} field,
+and a positional comparison follows when neither gives a key. An empty
+vector is an error. Every key column must exist in both datasets; otherwise
 an error is raised naming the missing column(s) and the dataset(s) concerned.
 See the "Argument vs YAML precedence" section.}
 
@@ -149,11 +151,15 @@ YAML \code{defaults} section, then the built-in default.\tabular{llll}{
 
 
 When the YAML contains both \code{keys} and the legacy singular \code{key} field,
-\code{keys} (the canonical field written by \code{\link[=write_rules_template]{write_rules_template()}}) wins.
+\code{keys} (the canonical field written by \code{\link[=write_rules_template]{write_rules_template()}}) wins,
+whatever its value: \verb{keys: ~} or \verb{keys: []} next to \verb{key: [id]} means "no
+key", not \code{id}.
 
-The \code{key} argument must be a character vector (a non-character value is an
-error), while YAML-sourced key values are coerced to character (YAML being
-stringly typed, \verb{keys: [2024]} designates the column named "2024").
+The \code{key} argument must be a non-empty character vector (a non-character
+or empty value is an error: use \code{NULL} for a positional comparison), while
+YAML-sourced key values are coerced to character (YAML being stringly
+typed, \verb{keys: [2024]} designates the column named "2024"). In the YAML, an
+absent \code{keys} field, \verb{keys: ~} and \verb{keys: []} all mean "no key".
 
 Note for \code{path = NULL}: the auto-generated rules template itself carries a
 label (\code{"Comparison with default rules"}, or the explicit \code{label} argument),

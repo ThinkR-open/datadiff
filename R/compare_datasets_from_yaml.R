@@ -6,7 +6,8 @@
 #'
 #' @param data_reference A dataframe or tibble used as reference for rule generation
 #' @param key Character vector specifying column name(s) to use as join key(s) for data
-#'   comparison. If NULL, comparison is positional (row by row).
+#'   comparison. `NULL` (the default) writes `keys: ~` and means a positional
+#'   comparison (row by row); an empty vector is an error.
 #' @param label Descriptive label for the validation report
 #' @param path Character string specifying the output YAML file path (default: "rules.yaml")
 #' @param version Numeric version of the rules format (default: 1)
@@ -226,6 +227,27 @@ validate_duckdb_memory_limit <- function(duckdb_memory_limit) {
   invisible(NULL)
 }
 
+#' Read the join key declared in a rules file
+#'
+#' In a YAML file, "no key" has several spellings: an absent field, `keys: ~`,
+#' or `keys: []`, which `yaml::read_yaml()` reads as `list()` and not as
+#' `NULL`. All of them resolve to `NULL` here. Values are coerced to character,
+#' YAML being stringly typed (`keys: [2024]` designates the column "2024").
+#'
+#' @param value The `keys` (or legacy `key`) field as read from the YAML.
+#' @return A non-empty character vector, or `NULL` for "no key".
+#' @noRd
+yaml_key <- function(value) {
+  if (is.null(value)) {
+    return(NULL)
+  }
+  key <- as.character(unlist(value, use.names = FALSE))
+  if (length(key) == 0L) {
+    return(NULL)
+  }
+  key
+}
+
 #' Validate a comparison key against both datasets
 #'
 #' Shared guard for every code path that consumes a key: checks the type and
@@ -286,11 +308,15 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' | report label | `label` | `label` | "Comparing candidate vs reference" |
 #'
 #' When the YAML contains both `keys` and the legacy singular `key` field,
-#' `keys` (the canonical field written by [write_rules_template()]) wins.
+#' `keys` (the canonical field written by [write_rules_template()]) wins,
+#' whatever its value: `keys: ~` or `keys: []` next to `key: [id]` means "no
+#' key", not `id`.
 #'
-#' The `key` argument must be a character vector (a non-character value is an
-#' error), while YAML-sourced key values are coerced to character (YAML being
-#' stringly typed, `keys: [2024]` designates the column named "2024").
+#' The `key` argument must be a non-empty character vector (a non-character
+#' or empty value is an error: use `NULL` for a positional comparison), while
+#' YAML-sourced key values are coerced to character (YAML being stringly
+#' typed, `keys: [2024]` designates the column named "2024"). In the YAML, an
+#' absent `keys` field, `keys: ~` and `keys: []` all mean "no key".
 #'
 #' Note for `path = NULL`: the auto-generated rules template itself carries a
 #' label (`"Comparison with default rules"`, or the explicit `label` argument),
@@ -301,7 +327,9 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' @param data_reference Reference dataframe, tibble, or lazy table (tbl_lazy)
 #' @param data_candidate Candidate dataframe to validate against reference
 #' @param key Optional character vector of column names to use as join keys for
-#'   ordered comparison. Every key column must exist in both datasets; otherwise
+#'   ordered comparison; `NULL` (the default) defers to the YAML `keys` field,
+#'   and a positional comparison follows when neither gives a key. An empty
+#'   vector is an error. Every key column must exist in both datasets; otherwise
 #'   an error is raised naming the missing column(s) and the dataset(s) concerned.
 #'   See the "Argument vs YAML precedence" section.
 #' @param path Path to YAML file containing validation rules. If NULL, default rules are
@@ -561,12 +589,18 @@ compare_datasets_from_yaml <- function(data_reference,
   }
 
   # Precedence: explicit argument > YAML defaults > none. The canonical YAML
-  # field is "keys" (what write_rules_template() writes); a legacy singular
-  # "key" field is honored as fallback. [[ avoids $ partial matching.
+  # field is "keys" (what write_rules_template() writes); the legacy singular
+  # "key" field is honored only when "keys" is absent from the file. A present
+  # "keys" wins whatever its value, including the no-key spellings ~ and [],
+  # hence a presence test rather than %||%, which reads ~ as an absence.
+  # [[ avoids $ partial matching; NULL[["x"]] is NULL, so a file without a
+  # defaults section is safe.
   if (is.null(key)) {
-    key <- rules$defaults[["keys"]] %||% rules$defaults[["key"]]
-    if (!is.null(key)) {
-      key <- as.character(unlist(key, use.names = FALSE))
+    defaults <- rules[["defaults"]]
+    if ("keys" %in% names(defaults)) {
+      key <- yaml_key(defaults[["keys"]])
+    } else {
+      key <- yaml_key(defaults[["key"]])
     }
   }
 
