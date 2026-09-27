@@ -255,7 +255,7 @@ defaults:
   ignore_columns:         # columns excluded from comparison entirely
     - documentation
     - updated_at
-  keys: id                # join key (single or composite)
+  keys: id                # join key (single or composite); ~ or [] for none
   label: ref vs cand      # label shown in the pointblank report
 
 # Note: when a setting exists both as a function argument and in the YAML,

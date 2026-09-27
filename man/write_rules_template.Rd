@@ -30,7 +30,8 @@ write_rules_template(
 \item{data_reference}{A dataframe or tibble used as reference for rule generation}
 
 \item{key}{Character vector specifying column name(s) to use as join key(s) for data
-comparison. If NULL, comparison is positional (row by row).}
+comparison. \code{NULL} (the default) writes \verb{keys: ~} and means a positional
+comparison (row by row); an empty vector is an error.}
 
 \item{label}{Descriptive label for the validation report}
 

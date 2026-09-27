@@ -1,3 +1,19 @@
+# datadiff (development version)
+
+## Bug fixes
+
+* `keys: []` in a rules file was read as an empty key and rejected before the
+  data was even looked at ("Parameter 'key' must be a non-empty character
+  vector"), although `[]` is the natural spelling of "no key" in a hand-written
+  YAML. `keys: []` and the legacy `key: []` now mean "no key", exactly like an
+  absent field or `keys: ~`: the comparison is positional. A present `keys`
+  field now wins over a legacy `key` field whatever its value: `keys: ~` next
+  to `key: [id]` used to select `id`, it means "no key" like `keys: []` does.
+  The `key` argument
+  of `compare_datasets_from_yaml()` and `write_rules_template()` is unchanged:
+  an empty vector there is still an error, `NULL` is the way to ask for a
+  positional comparison from R code (issue #59).
+
 # datadiff 0.6.0
 
 ## New features
