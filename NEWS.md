@@ -22,8 +22,12 @@
   `type_mismatch` step errored ("replacement has 1 row, data has 0"), and on
   the lazy path with `check_count: true` the structural and row-count steps
   interrogated 0 units and passed, so `all_passed` was `TRUE` while `coverage`
-  said `FAIL`. Both paths now seed one row for the agent when the table is
-  empty, and the verdict follows the coverage.
+  said `FAIL`. The structural steps (`missing_column`, `type_mismatch`,
+  `tolerance_on_non_numeric`) are now table-wide `col_exists()` checks on a
+  reserved, deliberately absent column: one unit, failing on any table, empty
+  or not, which also aligns the agent with `coverage` (`n = 1`); a `cmp` that
+  carries such a reserved name is refused. The row-count step still needs a
+  row, so both paths seed one for the agent when the table is empty.
 
 # datadiff 0.6.0
 

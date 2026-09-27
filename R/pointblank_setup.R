@@ -40,6 +40,8 @@
 #'   `tolerance_on_non_numeric: <column>` is added for each. The comparison
 #'   pipeline keeps such a column out of `common_cols` and `tol_cols`, and out
 #'   of `type_mismatch_cols`; this function does not enforce that exclusion.
+#'   The step itself is table-wide: it fails on any `cmp`, including a
+#'   zero-row one, and does not depend on the number of rows.
 #' @param add_col_exists_steps Logical indicating whether to add `col_exists` validation
 #'   steps for common columns (default: `TRUE`). Set to `FALSE` for the non-local (lazy
 #'   table) path where `cmp` only contains pre-computed boolean columns, not the original
@@ -77,20 +79,6 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
     )
   }
 
-  # Dummy FALSE columns, one per structural failure (missing column, type
-  # mismatch, tolerance rule on a non-numeric column): each carries a
-  # dedicated validation step that always fails. The step needs at least one
-  # unit to fail on; the comparison pipeline seeds a row when cmp is empty.
-  for (col_nm in missing_in_candidate) {
-    cmp <- add_false_column(cmp, name = paste0(datadiff_prefix_missing_col, col_nm))
-  }
-  for (col_nm in type_mismatch_cols) {
-    cmp <- add_false_column(cmp, name = paste0(datadiff_prefix_type_mismatch, col_nm))
-  }
-  for (col_nm in tolerance_non_numeric_cols) {
-    cmp <- add_false_column(cmp, name = paste0(datadiff_prefix_tolerance_non_numeric, col_nm))
-  }
-
   # Derive the missing <col>__eq booleans BEFORE creating the agent, so every
   # equality step validates the same boolean the verdict logic uses (shared NA
   # semantics) instead of embedding the whole reference vector in the step
@@ -110,6 +98,25 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
   # Hoisted once, AFTER every cmp mutation above
   col_names <- get_col_names(cmp)
 
+  # A structural failure (missing column, type mismatch, tolerance rule on a
+  # non-numeric column) is a property of the schema, not of the rows: its step
+  # is table-wide, a col_exists() on a reserved name that is deliberately
+  # absent, so it fails on any table, empty or not, local or lazy, with one
+  # unit. A real column carrying that name would turn the step into a passing
+  # one: refuse it loudly rather than emit a wrong verdict.
+  structural_cols <- c(
+    datadiff_structural_col(missing_in_candidate, prefix = datadiff_prefix_missing_col),
+    datadiff_structural_col(type_mismatch_cols, prefix = datadiff_prefix_type_mismatch),
+    datadiff_structural_col(tolerance_non_numeric_cols, prefix = datadiff_prefix_tolerance_non_numeric)
+  )
+  collisions <- intersect(x = structural_cols, y = col_names)
+  if (length(collisions) > 0) {
+    stop(sprintf(
+      "cmp carries reserved structural column name(s): %s",
+      paste(collisions, collapse = ", ")
+    ), call. = FALSE)
+  }
+
   agent <- create_agent(tbl = cmp, label = label,
                         actions = action_levels(warn_at = warn_at, stop_at = stop_at),
                         lang = lang,
@@ -125,37 +132,25 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
     }
   }
 
-  # For missing columns, add a validation that will fail
+  # Structural steps: one always-failing, table-wide step per column.
   for (col_nm in missing_in_candidate) {
-    dummy_col <- paste0(datadiff_prefix_missing_col, col_nm)
     agent <- agent %>%
-      col_vals_equal(
-        columns = all_of(dummy_col),
-        value = TRUE,
-        na_pass = FALSE,
+      col_exists(
+        columns = all_of(datadiff_structural_col(col_nm, prefix = datadiff_prefix_missing_col)),
         label = paste("col_exists:", col_nm)
       )
   }
-
-  # For type-mismatched columns, add a validation that will always fail.
   for (col_nm in type_mismatch_cols) {
-    dummy_col <- paste0(datadiff_prefix_type_mismatch, col_nm)
     agent <- agent %>%
-      col_vals_equal(
-        columns = all_of(dummy_col),
-        value = TRUE,
-        na_pass = FALSE,
+      col_exists(
+        columns = all_of(datadiff_structural_col(col_nm, prefix = datadiff_prefix_type_mismatch)),
         label = paste("type_mismatch:", col_nm)
       )
   }
-
   for (col_nm in tolerance_non_numeric_cols) {
-    dummy_col <- paste0(datadiff_prefix_tolerance_non_numeric, col_nm)
     agent <- agent %>%
-      col_vals_equal(
-        columns = all_of(dummy_col),
-        value = TRUE,
-        na_pass = FALSE,
+      col_exists(
+        columns = all_of(datadiff_structural_col(col_nm, prefix = datadiff_prefix_tolerance_non_numeric)),
         label = paste("tolerance_on_non_numeric:", col_nm)
       )
   }
@@ -189,12 +184,13 @@ setup_pointblank_agent <- function(cmp, cols_reference = NULL, common_cols, tol_
   agent
 }
 
-# A FALSE column of the right length on a local table (a scalar assignment
-# errors on a 0-row data.frame), a mutate on a lazy one.
-add_false_column <- function(cmp, name) {
-  if (is_non_local(cmp)) {
-    return(dplyr::mutate(cmp, !!name := FALSE))
+# Name of the reserved column carrying a structural failure step. The step
+# asserts this column does NOT exist, so it fails on any table, empty or not,
+# local or lazy. Length-guarded like datadiff_ok_col(): paste0 with
+# character(0) would yield the bare prefix, a phantom column name.
+datadiff_structural_col <- function(col, prefix) {
+  if (length(col) == 0) {
+    return(character(0))
   }
-  cmp[[name]] <- rep(FALSE, times = nrow(cmp))
-  cmp
+  paste0(prefix, col)
 }

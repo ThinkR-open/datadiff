@@ -72,7 +72,9 @@ reference. \{datadiff\} never converts data, so the rule cannot be
 honoured: a dedicated failing validation step labelled
 \verb{tolerance_on_non_numeric: <column>} is added for each. The comparison
 pipeline keeps such a column out of \code{common_cols} and \code{tol_cols}, and out
-of \code{type_mismatch_cols}; this function does not enforce that exclusion.}
+of \code{type_mismatch_cols}; this function does not enforce that exclusion.
+The step itself is table-wide: it fails on any \code{cmp}, including a
+zero-row one, and does not depend on the number of rows.}
 }
 \value{
 Configured pointblank agent ready for interrogation

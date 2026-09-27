@@ -295,9 +295,46 @@ test_that("setup_pointblank_agent adds one always-failing step per tolerance_on_
   expect_false(pointblank::all_passed(res))
   vs <- res$validation_set
   expect_true("tolerance_on_non_numeric: z" %in% vs$label)
-  expect_equal(vs$n_failed[which(vs$label == "tolerance_on_non_numeric: z")], 2)
+  expect_equal(vs$n[which(vs$label == "tolerance_on_non_numeric: z")], 1)
+  expect_equal(vs$n_failed[which(vs$label == "tolerance_on_non_numeric: z")], 1)
 })
 
 test_that("report_underlying_col strips the tolerance_on_non_numeric prefix", {
   expect_equal(report_underlying_col("__tolerance_non_numeric_c"), "c")
+})
+
+test_that("setup_pointblank_agent: a structural step fails even on a zero-row cmp", {
+  cmp <- data.frame(x = character(0), x__reference = character(0), stringsAsFactors = FALSE)
+  agent <- setup_pointblank_agent(
+    cmp,
+    common_cols = character(0),
+    tol_cols = character(0),
+    row_validation_info = list(check_count = FALSE),
+    ref_suffix = "__reference",
+    warn_at = 1e-14,
+    stop_at = 1e-14,
+    label = "zero row",
+    na_equal = TRUE,
+    tolerance_non_numeric_cols = "x",
+    add_col_exists_steps = FALSE
+  )
+  res <- pointblank::interrogate(agent)
+  expect_false(pointblank::all_passed(res))
+  idx <- which(res$validation_set$label == "tolerance_on_non_numeric: x")
+  expect_equal(res$validation_set$n[idx], 1)
+  expect_equal(res$validation_set$n_failed[idx], 1)
+})
+
+test_that("setup_pointblank_agent refuses a cmp that carries a reserved structural name", {
+  cmp <- data.frame(a = 1:2, a__reference = 1:2, `__tolerance_non_numeric_z` = c(TRUE, TRUE),
+                    check.names = FALSE)
+  expect_error(
+    setup_pointblank_agent(
+      cmp, common_cols = "a", tol_cols = character(0),
+      row_validation_info = list(check_count = FALSE),
+      ref_suffix = "__reference", warn_at = 0.1, stop_at = 0.1, label = "t",
+      na_equal = TRUE, tolerance_non_numeric_cols = "z"
+    ),
+    regexp = "reserved structural column"
+  )
 })

@@ -971,12 +971,12 @@ compare_datasets_from_yaml <- function(data_reference,
         data.frame()
       }
     }
-    # A 0-row agent table cannot carry a failing unit: a structural step
-    # (missing column, type mismatch, tolerance on a non-numeric column) or
-    # the row-count step would interrogate 0 units and pass, flipping
-    # pointblank::all_passed() against the coverage verdict. At 0 rows no value
-    # check can have failed, so the only columns the agent still needs are the
-    # dummy ones it adds itself and the row-count flag: seed ONE row.
+    # A 0-row agent table cannot carry a failing unit for the row-count step
+    # (a row-wise check on row_count_ok): it would interrogate 0 units and
+    # pass, flipping pointblank::all_passed() against the coverage verdict. At
+    # 0 rows no value check can have failed, so the agent only needs the
+    # row-count flag: seed ONE row carrying it. The structural steps are
+    # table-wide and do not need it.
     if (nrow(cmp_for_agent) == 0) {
       cmp_for_agent <- data.frame(.datadiff_structural = FALSE)
       if (isTRUE(row_validation_info$check_count)) {
