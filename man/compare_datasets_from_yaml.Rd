@@ -130,7 +130,9 @@ YAML \code{defaults} section, then the built-in default.\tabular{llll}{
 
 
 When the YAML contains both \code{keys} and the legacy singular \code{key} field,
-\code{keys} (the canonical field written by \code{\link[=write_rules_template]{write_rules_template()}}) wins.
+\code{keys} (the canonical field written by \code{\link[=write_rules_template]{write_rules_template()}}) wins,
+whatever its value: \verb{keys: ~} or \verb{keys: []} next to \verb{key: [id]} means "no
+key", not \code{id}.
 
 The \code{key} argument must be a non-empty character vector (a non-character
 or empty value is an error: use \code{NULL} for a positional comparison), while

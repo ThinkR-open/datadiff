@@ -6,7 +6,8 @@
 #'
 #' @param data_reference A dataframe or tibble used as reference for rule generation
 #' @param key Character vector specifying column name(s) to use as join key(s) for data
-#'   comparison. If NULL, comparison is positional (row by row).
+#'   comparison. `NULL` (the default) writes `keys: ~` and means a positional
+#'   comparison (row by row); an empty vector is an error.
 #' @param label Descriptive label for the validation report
 #' @param path Character string specifying the output YAML file path (default: "rules.yaml")
 #' @param version Numeric version of the rules format (default: 1)
@@ -307,7 +308,9 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #' | report label | `label` | `label` | "Comparing candidate vs reference" |
 #'
 #' When the YAML contains both `keys` and the legacy singular `key` field,
-#' `keys` (the canonical field written by [write_rules_template()]) wins.
+#' `keys` (the canonical field written by [write_rules_template()]) wins,
+#' whatever its value: `keys: ~` or `keys: []` next to `key: [id]` means "no
+#' key", not `id`.
 #'
 #' The `key` argument must be a non-empty character vector (a non-character
 #' or empty value is an error: use `NULL` for a positional comparison), while
@@ -565,10 +568,19 @@ compare_datasets_from_yaml <- function(data_reference,
   }
 
   # Precedence: explicit argument > YAML defaults > none. The canonical YAML
-  # field is "keys" (what write_rules_template() writes); a legacy singular
-  # "key" field is honored as fallback. [[ avoids $ partial matching.
+  # field is "keys" (what write_rules_template() writes); the legacy singular
+  # "key" field is honored only when "keys" is absent from the file. A present
+  # "keys" wins whatever its value, including the no-key spellings ~ and [],
+  # hence a presence test rather than %||%, which reads ~ as an absence.
+  # [[ avoids $ partial matching; NULL[["x"]] is NULL, so a file without a
+  # defaults section is safe.
   if (is.null(key)) {
-    key <- yaml_key(rules$defaults[["keys"]] %||% rules$defaults[["key"]])
+    defaults <- rules[["defaults"]]
+    if ("keys" %in% names(defaults)) {
+      key <- yaml_key(defaults[["keys"]])
+    } else {
+      key <- yaml_key(defaults[["key"]])
+    }
   }
 
   # Check for duplicate keys (only if key exists in both datasets)

@@ -2,12 +2,16 @@
 # `keys: ~`: yaml::read_yaml() reads [] as list(), which is not NULL, and must
 # not be mistaken for an empty key. The `key` argument, R code, stays strict.
 
-write_rules_with <- function(key_line) {
+# legacy = TRUE adds a singular `key: [f2]` field, which a present `keys`
+# field must beat whatever its value: without it, the no-key spellings could
+# not be told apart from one another.
+write_rules_with <- function(key_line, legacy = FALSE) {
   path <- tempfile(fileext = ".yaml")
   writeLines(c(
     "version: 1",
     "defaults:",
     key_line,
+    if (legacy) "  key: [f2]",
     "  label: essai",
     "by_type:",
     "  character:",
@@ -53,11 +57,21 @@ test_that("legacy singular key: [] is read as no key as well", {
   expect_true(compare_datasets_from_yaml(tbl, tbl, path = path)$all_passed)
 })
 
-test_that("keys: [] wins over a legacy key field, as keys always does", {
-  path <- write_rules_with("  keys: []\n  key: [f2]")
+test_that("a present keys field wins over a legacy key field, whatever its no-key spelling", {
+  paths <- c(write_rules_with("  keys: []", legacy = TRUE), write_rules_with("  keys: ~", legacy = TRUE))
+  on.exit(unlink(paths), add = TRUE)
+  covs <- lapply(paths, FUN = function(p) compare_datasets_from_yaml(tbl, tbl, path = p)$coverage)
+  for (cov in covs) {
+    expect_setequal(cov$column[cov$check == "equality"], c("f2", "f3"))
+  }
+  expect_identical(covs[[1]], covs[[2]])
+})
+
+test_that("an absent keys field still falls back to the legacy key field", {
+  path <- write_rules_with("  na_equal: yes", legacy = TRUE)
   on.exit(unlink(path), add = TRUE)
   res <- compare_datasets_from_yaml(tbl, tbl, path = path)
-  expect_setequal(res$coverage$column[res$coverage$check == "equality"], c("f2", "f3"))
+  expect_identical(res$coverage$column[res$coverage$check == "equality"], "f3")
 })
 
 test_that("lazy path: keys: [] is positional as well", {
