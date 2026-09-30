@@ -19,7 +19,8 @@ setup_pointblank_agent(
   locale = "fr_FR",
   missing_in_candidate = character(0),
   type_mismatch_cols = character(0),
-  add_col_exists_steps = TRUE
+  add_col_exists_steps = TRUE,
+  tolerance_non_numeric_cols = character(0)
 )
 }
 \arguments{
@@ -64,6 +65,16 @@ added for each such column.}
 steps for common columns (default: \code{TRUE}). Set to \code{FALSE} for the non-local (lazy
 table) path where \code{cmp} only contains pre-computed boolean columns, not the original
 data columns.}
+
+\item{tolerance_non_numeric_cols}{Character vector of columns carrying a
+tolerance rule (\code{abs} or \code{rel}) although they are not numeric in the
+reference. \{datadiff\} never converts data, so the rule cannot be
+honoured: a dedicated failing validation step labelled
+\verb{tolerance_on_non_numeric: <column>} is added for each. The comparison
+pipeline keeps such a column out of \code{common_cols} and \code{tol_cols}, and out
+of \code{type_mismatch_cols}; this function does not enforce that exclusion.
+The step itself is table-wide: it fails on any \code{cmp}, including a
+zero-row one, and does not depend on the number of rows.}
 }
 \value{
 Configured pointblank agent ready for interrogation

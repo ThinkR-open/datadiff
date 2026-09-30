@@ -371,6 +371,23 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #'   literal (an invalid one is an error on every path), but it only takes
 #'   effect when Arrow datasets are used: plain `data.frame`s or `tbl_lazy`
 #'   inputs ignore a valid value.
+#' @details
+#' \strong{Structural failures.} Three situations produce a check that always
+#' fails, one row in \code{coverage} and one failing step in the agent, without
+#' looking at the values: a column present in the reference but missing in the
+#' candidate (\code{missing_column}); a column whose type differs between the
+#' two datasets, \code{integer} and \code{numeric} being compatible
+#' (\code{type_mismatch}); and a tolerance rule (\code{abs} or \code{rel},
+#' whether it comes from \code{by_name} or from a \code{by_type} block) on a
+#' column whose type in the reference is neither \code{integer} nor
+#' \code{numeric}, including \code{character}, \code{date}, \code{datetime}
+#' and \code{logical} (\code{tolerance_on_non_numeric}). \{datadiff\} never
+#' converts the data, so such a rule cannot be honoured; rather than silently
+#' comparing the column as text, it is reported, a warning is raised, the
+#' column takes part in no other check and the rule is dropped from
+#' \code{applied_rules}. To compare the column by value, make it numeric in
+#' both datasets before the call; to compare it as text, remove the rule.
+#'
 #' @return A list of class \code{datadiff_result} containing:
 #'   \item{all_passed}{Logical; \code{TRUE} when every check passed. The
 #'     first element of the returned list and the single verdict consumers
@@ -386,11 +403,15 @@ validate_comparison_key <- function(key, ref_cols, cand_cols) {
 #'     future release.}
 #'   \item{missing_in_candidate}{Columns missing in candidate data}
 #'   \item{extra_in_candidate}{Extra columns in candidate data}
-#'   \item{applied_rules}{Final column-specific rules applied}
+#'   \item{applied_rules}{Final column-specific rules applied. A tolerance
+#'     rule that could not be honoured (see Details) is not listed.}
 #'   \item{coverage}{A \code{datadiff_coverage} data.frame: one row per check
 #'     actually performed (column, check type, n, n_failed, status), always
 #'     produced at negligible cost so the verified checks stay visible even when
-#'     the fast path skips the per-column agent.}
+#'     the fast path skips the per-column agent. Check types: \code{col_exists},
+#'     \code{tolerance}, \code{equality}, \code{row_count}, and the structural
+#'     failures \code{missing_column}, \code{type_mismatch} and
+#'     \code{tolerance_on_non_numeric}.}
 #'   \item{summary}{Aggregate counts from \code{coverage} (n_checks, n_pass,
 #'     n_fail, n_rows_failed_total, all_passed).}
 #' @importFrom dplyr left_join %>%
@@ -668,6 +689,42 @@ compare_datasets_from_yaml <- function(data_reference,
     ), call. = FALSE)
   }
 
+  # The single source of truth for "this column can carry a tolerance": its
+  # type in the reference. Shared by the tolerance-column selection below and
+  # by the structural check right here, so the two cannot drift apart.
+  tol_rule_cols <- common_cols[vapply(X = common_cols, FUN = function(nm) {
+    cr <- col_rules[[nm]]
+    !is.null(cr[["abs"]]) || !is.null(cr[["rel"]])
+  }, FUN.VALUE = logical(1))]
+  numeric_ref_cols <- common_cols[type_ref[common_cols] %in% numeric_types]
+
+  # A tolerance rule on a column that is not numeric in the reference cannot
+  # be honoured: the data is never converted. The column gets a dedicated
+  # failing check, takes part in no other check, and the rule leaves
+  # applied_rules. Type-mismatched columns are already reported as such.
+  tolerance_non_numeric_cols <- setdiff(
+    x = setdiff(x = tol_rule_cols, y = numeric_ref_cols),
+    y = type_mismatch_cols
+  )
+  if (length(tolerance_non_numeric_cols) > 0) {
+    details <- vapply(X = tolerance_non_numeric_cols, FUN = function(nm) {
+      sprintf("'%s' (%s)", nm, type_ref[[nm]])
+    }, FUN.VALUE = character(1))
+    warning(sprintf(
+      paste0("Tolerance rule (abs/rel) on %d non-numeric column(s): %s. ",
+             "{datadiff} never converts data, so the rule cannot be applied: ",
+             "each is reported as a failing 'tolerance_on_non_numeric' check. ",
+             "Make the column numeric in both datasets to compare it by value, ",
+             "or remove the rule to compare it as text."),
+      length(tolerance_non_numeric_cols),
+      paste(details, collapse = ", ")
+    ), call. = FALSE)
+    for (nm in tolerance_non_numeric_cols) {
+      col_rules[[nm]][["abs"]] <- NULL
+      col_rules[[nm]][["rel"]] <- NULL
+    }
+  }
+
   data_reference_p <- preprocess_dataframe(data_reference, col_rules, schema = schema_ref)
   data_candidate_p <- preprocess_dataframe(data_candidate, col_rules, schema = schema_cand)
 
@@ -734,13 +791,10 @@ compare_datasets_from_yaml <- function(data_reference,
   # Type-mismatched columns are excluded: arithmetic on non-numeric candidate
   # values would crash (e.g. sign() on character). They get their own failing
   # validation step via setup_pointblank_agent instead.
-  tol_cols <- names(col_rules)
-  tol_cols <- tol_cols[vapply(X = tol_cols, FUN = function(nm) is.numeric(schema_ref[[nm]]), FUN.VALUE = logical(1))]
-  tol_cols <- tol_cols[vapply(X = tol_cols, FUN = function(nm) {
-    cr <- col_rules[[nm]]
-    !is.null(cr$abs) || !is.null(cr$rel)
-  }, FUN.VALUE = logical(1))]
-  tol_cols <- setdiff(tol_cols, type_mismatch_cols)
+  tol_cols <- setdiff(
+    x = intersect(x = tol_rule_cols, y = numeric_ref_cols),
+    y = type_mismatch_cols
+  )
 
   # Equality columns the verdict actually checks: common, non-key, non-tolerance
   # AND non-type-mismatched. Derived once and threaded to both the __eq producer
@@ -749,7 +803,10 @@ compare_datasets_from_yaml <- function(data_reference,
   # types and crash the lazy path (e.g. casting a character candidate to the
   # numeric reference's type); they are reported as failing validation steps
   # instead.
-  eq_cols <- setdiff(setdiff(common_cols, type_mismatch_cols), tol_cols)
+  eq_cols <- setdiff(
+    x = setdiff(x = common_cols, y = c(type_mismatch_cols, tolerance_non_numeric_cols)),
+    y = tol_cols
+  )
 
   # Add the per-column within-tolerance (__ok) and, on the lazy path, equality
   # (__eq) booleans - the only columns that drive the verdict.
@@ -865,6 +922,7 @@ compare_datasets_from_yaml <- function(data_reference,
     tbl = cmp_for_agent, tol_cols = tol_cols, eq_cols = eq_cols,
     missing_in_candidate = missing_in_candidate,
     type_mismatch_cols = type_mismatch_cols,
+    tolerance_non_numeric_cols = tolerance_non_numeric_cols,
     row_validation_info = row_validation_info, row_count_ok = row_count_ok,
     ref_suffix = ref_suffix, na_equal = na_equal,
     counts = if (is_lazy) lazy_counts else NULL
@@ -872,7 +930,8 @@ compare_datasets_from_yaml <- function(data_reference,
 
   # Fast all-pass short-circuit.
   # The verdict is fully determined by the coverage, whose rows already
-  # include the structural checks (missing_column, type_mismatch, row_count).
+  # include the structural checks (missing_column, type_mismatch,
+  # tolerance_on_non_numeric, row_count).
   # The row_count row only exists when check_count is TRUE; otherwise
   # row_count_ok is TRUE by construction (unconditional init above), so the
   # absent row is neutral.
@@ -943,12 +1002,19 @@ compare_datasets_from_yaml <- function(data_reference,
           dplyr::select(cmp_slim_computed, dplyr::all_of(red_cols))
         )
       } else {
-        # Structural-only failure (missing columns / type mismatches with no
-        # failing value column and no row-count check): seed ONE row so the
-        # dummy FALSE columns added by setup_pointblank_agent carry a failing
-        # unit - a 0-row dummy step would interrogate 0 units and pass,
-        # flipping pointblank::all_passed() against the coverage verdict
-        data.frame(.datadiff_structural = FALSE)
+        data.frame()
+      }
+    }
+    # A 0-row agent table cannot carry a failing unit for the row-count step
+    # (a row-wise check on row_count_ok): it would interrogate 0 units and
+    # pass, flipping pointblank::all_passed() against the coverage verdict. At
+    # 0 rows no value check can have failed, so the agent only needs the
+    # row-count flag: seed ONE row carrying it. The structural steps are
+    # table-wide and do not need it.
+    if (nrow(cmp_for_agent) == 0) {
+      cmp_for_agent <- data.frame(.datadiff_structural = FALSE)
+      if (isTRUE(row_validation_info$check_count)) {
+        cmp_for_agent[["row_count_ok"]] <- row_count_ok
       }
     }
     agent <- setup_pointblank_agent(
@@ -965,6 +1031,7 @@ compare_datasets_from_yaml <- function(data_reference,
       locale = locale,
       missing_in_candidate = missing_in_candidate,
       type_mismatch_cols = type_mismatch_cols,
+      tolerance_non_numeric_cols = tolerance_non_numeric_cols,
       add_col_exists_steps = FALSE
     )
   }

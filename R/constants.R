@@ -16,6 +16,10 @@ datadiff_prefix_missing_col <- "__missing_col_"
 # Prefix of the dummy column carrying a type-mismatch failure step.
 datadiff_prefix_type_mismatch <- "__type_mismatch_"
 
+# Prefix of the dummy column carrying the failure step of a tolerance rule
+# (abs / rel) declared on a column that is not numeric in the reference.
+datadiff_prefix_tolerance_non_numeric <- "__tolerance_non_numeric_"
+
 # Column name helpers: the only supported way to build these names.
 # Length-guarded: paste0(character(0), suffix) yields the bare suffix
 # (recycle0 is FALSE by default), a phantom column name.

@@ -20,6 +20,9 @@ report_underlying_col <- function(col) {
   if (startsWith(col, datadiff_prefix_type_mismatch)) {
     return(sub(paste0("^", datadiff_prefix_type_mismatch), "", x = col))
   }
+  if (startsWith(col, datadiff_prefix_tolerance_non_numeric)) {
+    return(sub(paste0("^", datadiff_prefix_tolerance_non_numeric), "", x = col))
+  }
   sub(sprintf("(%s|%s)$", datadiff_suffix_ok, datadiff_suffix_eq), "", x = col)
 }
 
@@ -64,7 +67,8 @@ build_report_agent <- function(coverage, label, lang = "fr", locale = "fr_FR",
       col <- coverage$column[i]
       # Only value checks (tolerance / equality) map to a real step: that is
       # where the genuine row-level extract matters. col_exists and the
-      # structural checks (missing_column, type_mismatch, row_count) are
+      # structural checks (missing_column, type_mismatch,
+      # tolerance_on_non_numeric, row_count) are
       # synthesized from coverage - mapping them to a real step would pull in
       # per-row dummy results (e.g. n_failed = nrow) that contradict coverage.
       # Consequence: an eval_error on a structural step is intentionally not

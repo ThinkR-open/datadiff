@@ -105,11 +105,15 @@ emits a warning (once per session); the alias will be removed in a
 future release.}
 \item{missing_in_candidate}{Columns missing in candidate data}
 \item{extra_in_candidate}{Extra columns in candidate data}
-\item{applied_rules}{Final column-specific rules applied}
+\item{applied_rules}{Final column-specific rules applied. A tolerance
+rule that could not be honoured (see Details) is not listed.}
 \item{coverage}{A \code{datadiff_coverage} data.frame: one row per check
 actually performed (column, check type, n, n_failed, status), always
 produced at negligible cost so the verified checks stay visible even when
-the fast path skips the per-column agent.}
+the fast path skips the per-column agent. Check types: \code{col_exists},
+\code{tolerance}, \code{equality}, \code{row_count}, and the structural
+failures \code{missing_column}, \code{type_mismatch} and
+\code{tolerance_on_non_numeric}.}
 \item{summary}{Aggregate counts from \code{coverage} (n_checks, n_pass,
 n_fail, n_rows_failed_total, all_passed).}
 }
@@ -117,6 +121,23 @@ n_fail, n_rows_failed_total, all_passed).}
 Main function for comparing reference and candidate datasets using configurable
 validation rules defined in a YAML file. Supports exact matching, tolerance-based
 comparisons, text normalization, and row count validation.
+}
+\details{
+\strong{Structural failures.} Three situations produce a check that always
+fails, one row in \code{coverage} and one failing step in the agent, without
+looking at the values: a column present in the reference but missing in the
+candidate (\code{missing_column}); a column whose type differs between the
+two datasets, \code{integer} and \code{numeric} being compatible
+(\code{type_mismatch}); and a tolerance rule (\code{abs} or \code{rel},
+whether it comes from \code{by_name} or from a \code{by_type} block) on a
+column whose type in the reference is neither \code{integer} nor
+\code{numeric}, including \code{character}, \code{date}, \code{datetime}
+and \code{logical} (\code{tolerance_on_non_numeric}). \{datadiff\} never
+converts the data, so such a rule cannot be honoured; rather than silently
+comparing the column as text, it is reported, a warning is raised, the
+column takes part in no other check and the rule is dropped from
+\code{applied_rules}. To compare the column by value, make it numeric in
+both datasets before the call; to compare it as text, remove the rule.
 }
 \section{Argument vs YAML precedence}{
 

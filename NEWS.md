@@ -1,7 +1,33 @@
-# datadiff (development version)
+# datadiff 0.6.1
 
 ## Bug fixes
 
+* A tolerance rule (`abs` / `rel`) on a column that is not numeric in the
+  reference was silently ignored: the column fell back to an exact string
+  comparison while `applied_rules` still listed `abs` and `rel`, so the report
+  suggested a comparison by value that never happened. {datadiff} never
+  converts data, so the rule cannot be honoured: such a column now gets a
+  dedicated, always failing check, `tolerance_on_non_numeric: <column>`,
+  visible in the agent and in `coverage` like `type_mismatch`; a warning is
+  raised when it is detected, the column takes part in no other check, and
+  `applied_rules` no longer lists the rule that was not applied. This holds
+  whatever the origin of the rule (`by_name`, or a `by_type` block such as
+  `by_type: character: abs: 0.1`, which now fails every character column) and
+  whatever the non-numeric type (`character`, `date`, `datetime`, `logical`).
+  `build_coverage()` and `setup_pointblank_agent()` gain a
+  `tolerance_non_numeric_cols` argument, default empty (issue #60).
+
+* A comparison whose candidate or reference has no row could not carry a
+  structural failure: on the local path adding the dummy column of a
+  `type_mismatch` step errored ("replacement has 1 row, data has 0"), and on
+  the lazy path with `check_count: true` the structural and row-count steps
+  interrogated 0 units and passed, so `all_passed` was `TRUE` while `coverage`
+  said `FAIL`. The structural steps (`missing_column`, `type_mismatch`,
+  `tolerance_on_non_numeric`) are now table-wide `col_exists()` checks on a
+  reserved, deliberately absent column: one unit, failing on any table, empty
+  or not, which also aligns the agent with `coverage` (`n = 1`); a `cmp` that
+  carries such a reserved name is refused. The row-count step still needs a
+  row, so both paths seed one for the agent when the table is empty.
 * `keys: []` in a rules file was read as an empty key and rejected before the
   data was even looked at ("Parameter 'key' must be a non-empty character
   vector"), although `[]` is the natural spelling of "no key" in a hand-written
